@@ -1,0 +1,7 @@
+/.no_auto_test
+/target
+/Cargo.lock
+/resources
+*.rpm
+*.deb
+/xtender

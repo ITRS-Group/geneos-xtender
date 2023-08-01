@@ -1,0 +1,256 @@
+name: "Build on any push, and release on tag"
+
+permissions:
+  contents: "write"
+
+on:
+  push:
+    branches:
+      - "*"
+    tags:
+      - "*"
+jobs:
+  cargo_version:
+    name: Get version number from Cargo.toml
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.awk.outputs.version }}
+    steps:
+      - uses: actions/checkout@v3
+      - name: Get the version number using awk
+        id: awk
+        run: echo "version=$(awk -F\" '/^version/ {print $2}' Cargo.toml)" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests
+        run: cargo test
+
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Enforce formatting
+        run: cargo fmt --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Linting
+        run: cargo clippy -- -D warnings
+
+  build:
+    name: Build and upload binary asset
+
+    needs:
+      - test
+      - fmt
+      - clippy
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: "x86_64-unknown-linux-musl"
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+          override: true
+
+      - uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: --target ${{ matrix.target }} --release
+
+      - name: Move the created binary to the root
+        run: mv target/${{ matrix.target }}/release/xtender .
+
+      - name: Archive binary
+        uses: actions/upload-artifact@v2
+        with:
+          name: xtender
+          path: xtender
+
+  package_rpm:
+    name: Build RPM Package
+    needs: [cargo_version, build]
+    runs-on: ubuntu-latest
+    outputs:
+      package_name: ${{ steps.build_rpm.outputs.package }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download binary artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: xtender
+
+      - name: Build RPM Package
+        id: build_rpm
+        uses: kentik/pkg@v1.0.0-rc8
+        with:
+          name: geneos-xtender
+          version: ${{ needs.cargo_version.outputs.version }}
+          arch: x86_64
+          format: rpm
+          package: package_rpm.yaml
+
+      - name: Archive RPM Package
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ steps.build_rpm.outputs.package }}
+          path: ${{ steps.build_rpm.outputs.package }}
+
+  package_deb:
+    name: Build DEB Package
+    needs: [cargo_version, build]
+    runs-on: ubuntu-latest
+    outputs:
+      package_name: ${{ steps.build_deb.outputs.package }}
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download binary artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: xtender
+
+      - name: Build DEB Package
+        id: build_deb
+        uses: kentik/pkg@v1.0.0-rc7
+        with:
+          name: geneos-xtender
+          version: ${{ needs.cargo_version.outputs.version }}
+          arch: x86_64
+          format: deb
+          package: package_deb.yaml
+
+      - name: Archive DEB Package
+        uses: actions/upload-artifact@v2
+        with:
+          name: ${{ steps.build_deb.outputs.package }}
+          path: ${{ steps.build_deb.outputs.package }}
+
+  bats_tests_rpm:
+    name: Bats tests - RPM
+    needs: [package_rpm]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - "rockylinux:8"
+          - "rockylinux:9"
+          - "almalinux:8"
+          - "almalinux:9"
+          - "oraclelinux:8"
+          - "oraclelinux:9"
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download RPM Package artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: ${{ needs.package_rpm.outputs.package_name }}
+
+      - name: ${{ matrix.image }} - Build bats image
+        run: |
+          docker build -t bats_tests_${{ matrix.image }} -f tests/integration_tests/Dockerfile --build-arg IMAGE=${{ matrix.image }} --build-arg PKG=rpm .
+
+      - name: ${{ matrix.image }} - Run bats image
+        run: docker run bats_tests_${{ matrix.image }}
+
+  bats_tests_deb:
+    name: Bats tests - DEB
+    needs: [package_deb]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - "ubuntu:focal"
+          - "debian:11"
+          - "debian:12"
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download DEB Package artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: ${{ needs.package_deb.outputs.package_name }}
+
+      - name: ${{ matrix.image }} - Build bats image
+        run: |
+          docker build -t bats_tests_${{ matrix.image }} -f tests/integration_tests/Dockerfile --build-arg IMAGE=${{ matrix.image }} --build-arg PKG=deb .
+
+      - name: ${{ matrix.image }} - Run bats image
+        run: docker run bats_tests_${{ matrix.image }}
+
+  release:
+    name: Release
+    needs:
+      [cargo_version, package_rpm, package_deb, bats_tests_rpm, bats_tests_deb]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Download binary artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: xtender
+
+      - name: Download RPM Package artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: ${{ needs.package_rpm.outputs.package_name }}
+
+      - name: Download DEB Package artifact
+        uses: actions/download-artifact@v2
+        with:
+          name: ${{ needs.package_deb.outputs.package_name }}
+
+      - name: Create a tar gzipped file of the binary
+        run: tar -czvf geneos-xtender-${{ needs.cargo_version.outputs.version }}-static-linux-amd64.tar.gz xtender
+
+      - name: Archive release artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: release-artifacts
+          path: |
+            geneos-xtender-${{ needs.cargo_version.outputs.version }}-static-linux-amd64.tar.gz
+            ${{ needs.package_rpm.outputs.package_name }}
+            ${{ needs.package_deb.outputs.package_name }}
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            geneos-xtender-${{ needs.cargo_version.outputs.version }}-static-linux-amd64.tar.gz
+            ${{ needs.package_rpm.outputs.package_name }}
+            ${{ needs.package_deb.outputs.package_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

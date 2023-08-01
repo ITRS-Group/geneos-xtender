@@ -1,0 +1,9 @@
+/plugins/* linguist-vendored
+/scripts/* -linguist-detectable
+/tests/bats/* -linguist-detectable
+/tests/integration_tests/* -linguist-detectable
+/Makefile -linguist-detectable
+/Dockerfile -linguist-detectable
+/.projectile -linguist-detectable
+/*.toml -linguist-detectable
+/*.yaml -linguist-detectable
