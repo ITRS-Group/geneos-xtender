@@ -1,6 +1,6 @@
 [package]
 name = "geneos-xtender"
-version = "0.5.37"
+version = "0.6.0"
 license = "Apache-2.0"
 edition = "2021"
 authors = ["Johan Thorén <jthoren@itrsgroup.com>"]
