@@ -6,7 +6,7 @@
 *Geneos Xtender* is a pre-release preview of functionality that may _or may not_ be included in a future release of *Geneos* and is provided without official support but on a best-effort basis.
 
 ## Introduction
-*Geneos Xtender* is a collection of tools that together extend the capabilities of [Geneos](https://www.itrsgroup.com/products/geneos) by utilizing the large ecosystem of [Nagios](https://en.wikipedia.org/wiki/Nagios) compatible plugins.
+*Geneos Xtender* extends the capabilities of [Geneos](https://www.itrsgroup.com/products/geneos) by utilizing the large ecosystem of [Nagios](https://en.wikipedia.org/wiki/Nagios) compatible plugins.
 
 ### xtender
 The `xtender` cli tool runs one or more Nagios compatible checks and formats the output to be suitable for consumption by the [Geneos Toolkit Plugin](https://docs.itrsgroup.com/docs/geneos/current/data-collection/toolkit-plugin.html).
