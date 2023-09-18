@@ -11,6 +11,7 @@ pub struct CheckResult {
     short_output: String,
     long_output: String,
     performance_data: String,
+    execution_time: String,
 }
 
 #[derive(Debug, Default)]
@@ -21,6 +22,7 @@ pub struct CheckResultBuilder {
     short_output: Option<String>,
     long_output: Option<String>,
     performance_data: Option<String>,
+    execution_time: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -39,6 +41,7 @@ pub struct ProcessedCheckResult {
     command: String,
     performance_data_string: String,
     long_output: String,
+    execution_time: String,
 }
 
 pub struct CheckResults(pub Vec<CheckResult>);
@@ -73,6 +76,10 @@ impl CheckResult {
 
     pub fn performance_data(&self) -> String {
         self.performance_data.to_string()
+    }
+
+    pub fn execution_time(&self) -> String {
+        self.execution_time.to_string()
     }
 }
 
@@ -118,6 +125,11 @@ impl CheckResultBuilder {
         self
     }
 
+    pub fn with_execution_time(mut self, execution_time: std::time::Duration) -> Self {
+        self.execution_time = Some(format!("{:?}s", execution_time.as_secs_f64()));
+        self
+    }
+
     pub fn build(self) -> CheckResult {
         CheckResult {
             name: escape_chars(&self.name.unwrap_or_default()),
@@ -126,6 +138,7 @@ impl CheckResultBuilder {
             short_output: escape_chars(&self.short_output.unwrap_or_default()),
             long_output: escape_chars(&self.long_output.unwrap_or_default()),
             performance_data: self.performance_data.unwrap_or_default(),
+            execution_time: self.execution_time.unwrap_or_default(),
         }
     }
 }
@@ -194,6 +207,7 @@ impl ProcessedCheckResult {
             short_output: check_result.short_output(),
             long_output: check_result.long_output(),
             performance_data_string: escape_chars(&check_result.performance_data()),
+            execution_time: check_result.execution_time(),
             ..ProcessedCheckResult::default()
         }
     }

@@ -155,14 +155,20 @@ impl Check {
             });
 
         let secs = std::time::Duration::from_secs(self.timeout);
+        let start_time = std::time::Instant::now();
+        let execution_time: std::time::Duration;
         let exit_code = match child
             .wait_timeout(secs)
             .unwrap_or_else(|_| panic!("Failed to wait for command: {}", self.command))
         {
-            Some(status) => status.code(),
+            Some(status) => {
+                execution_time = start_time.elapsed();
+                status.code()
+            }
             None => {
                 timed_out = true;
                 child.kill().unwrap();
+                execution_time = start_time.elapsed();
                 child.wait().unwrap().code()
             }
         };
@@ -173,7 +179,11 @@ impl Check {
         };
 
         if timed_out {
-            return data.status(3).short_output(&timeout_msg).build();
+            return data
+                .status(3)
+                .short_output(&timeout_msg)
+                .with_execution_time(execution_time)
+                .build();
         }
 
         let mut s = String::new();
@@ -184,8 +194,15 @@ impl Check {
             .unwrap_or_else(|_| panic!("Failed to read stdout from command: {}", self.command));
 
         match exit_code {
-            Some(c) => data.status(c).parse_output(&s).build(),
-            None => data.parse_output(&s).build(),
+            Some(c) => data
+                .status(c)
+                .parse_output(&s)
+                .with_execution_time(execution_time)
+                .build(),
+            None => data
+                .parse_output(&s)
+                .with_execution_time(execution_time)
+                .build(),
         }
     }
 }

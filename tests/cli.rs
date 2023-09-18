@@ -34,7 +34,7 @@ fn test_cli_version() -> Result<(), Box<dyn std::error::Error>> {
 }
 #[test]
 fn test_missing_template_in_headline() -> Result<(), Box<dyn std::error::Error>> {
-    let expected_output = r#"name,status,shortOutput,label,value,uom,warn,crit,min,max,command,performanceDataString,longOutput
+    let expected_output = r#"name,status,shortOutput,label,value,uom,warn,crit,min,max,command,performanceDataString,longOutput,executionTime
 <!>templatesFound,
 <!>templatesNotFound,/path/to/non_existing.yaml"#;
 
@@ -105,7 +105,7 @@ fn test_invalid_command_not_found() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn test_missing_template_in_headline_with_multiple_missing_templates(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let expected_output = r#"name,status,shortOutput,label,value,uom,warn,crit,min,max,command,performanceDataString,longOutput
+    let expected_output = r#"name,status,shortOutput,label,value,uom,warn,crit,min,max,command,performanceDataString,longOutput,executionTime
 <!>templatesFound,
 <!>templatesNotFound,/path/to/non_existing.yaml, /path/to/non_existing_2.yaml"#;
 
@@ -618,7 +618,27 @@ fn test_that_sequential_option_renders_the_same_result_as_without() {
         .arg(file_1_path);
     let sequential_output = sequential_cmd.output().unwrap();
 
-    assert_eq!(parallel_output.stdout, sequential_output.stdout);
+    // Smooth out the difference in execution time so that the test doesn't fail due to the
+    // minor difference in execution time.
+
+    let execution_time_re = regex::Regex::new(r"\d+.\d+s\n").unwrap();
+
+    let parallel_output_string = execution_time_re
+        .replace_all(
+            String::from_utf8_lossy(&parallel_output.stdout).as_ref(),
+            "1.0s\n",
+        )
+        .to_string();
+
+    let sequential_output_string = execution_time_re
+        .replace_all(
+            String::from_utf8_lossy(&sequential_output.stdout).as_ref(),
+            "1.0s\n",
+        )
+        .to_string();
+
+    assert_eq!(parallel_output.status, sequential_output.status);
+    assert_eq!(parallel_output_string, sequential_output_string);
 
     drop(file_1);
     dir.close().unwrap();
@@ -669,6 +689,26 @@ fn test_that_parallel_option_is_faster_than_sequential() {
     assert!(parallel_output.stderr.is_empty());
     assert!(sequential_output.stderr.is_empty());
     assert!(parallel_duration < sequential_duration);
+
+    drop(file_1);
+    dir.close().unwrap();
+}
+
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_that_execution_time_is_correctly_printed() {
+    let dir = tempdir().unwrap();
+    let file_1_path = dir.path().join("file_1.yaml");
+    let mut file_1 = File::create(&file_1_path).unwrap();
+    writeln!(file_1, "{}", YAML_WITH_A_SHORT_SLEEP_COMMAND).unwrap();
+
+    let mut cmd = Command::cargo_bin("xtender").unwrap();
+    cmd.arg("--").arg(&file_1_path);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("executionTime"))
+        .stdout(predicate::str::contains("test_1,0,,,,,,,,,sleep 1,,,1.0"));
 
     drop(file_1);
     dir.close().unwrap();
