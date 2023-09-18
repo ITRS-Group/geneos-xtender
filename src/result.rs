@@ -126,7 +126,7 @@ impl CheckResultBuilder {
     }
 
     pub fn with_execution_time(mut self, execution_time: std::time::Duration) -> Self {
-        self.execution_time = Some(format!("{:?}s", execution_time.as_secs_f64()));
+        self.execution_time = Some(format!("{:?} s", execution_time.as_secs_f64()));
         self
     }
 

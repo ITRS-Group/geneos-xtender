@@ -621,19 +621,19 @@ fn test_that_sequential_option_renders_the_same_result_as_without() {
     // Smooth out the difference in execution time so that the test doesn't fail due to the
     // minor difference in execution time.
 
-    let execution_time_re = regex::Regex::new(r"\d+.\d+s\n").unwrap();
+    let execution_time_re = regex::Regex::new(r"\d+.\d+ s\n").unwrap();
 
     let parallel_output_string = execution_time_re
         .replace_all(
             String::from_utf8_lossy(&parallel_output.stdout).as_ref(),
-            "1.0s\n",
+            "1.0 s\n",
         )
         .to_string();
 
     let sequential_output_string = execution_time_re
         .replace_all(
             String::from_utf8_lossy(&sequential_output.stdout).as_ref(),
-            "1.0s\n",
+            "1.0 s\n",
         )
         .to_string();
 
