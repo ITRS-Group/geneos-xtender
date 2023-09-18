@@ -129,7 +129,7 @@ impl Check {
 
         if cmd_vec.is_empty() {
             panic!(
-                "After splitting the command by words, the command is empty. Original ommand: \'{}\'",
+                "After splitting the command by words, the command is empty. Original command: \'{}\'",
                 self.command
             );
         }
