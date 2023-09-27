@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 rust:latest AS build
+FROM rust:latest AS build
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN apt-get update && apt-get install -y musl-tools
 RUN rustup target add x86_64-unknown-linux-musl

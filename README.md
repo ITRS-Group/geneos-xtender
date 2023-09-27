@@ -76,21 +76,13 @@ The option `-o` can be used to convert an [Opsview Opspack](https://www.opsview.
 An _Xtender Netprobe_ is a [Netprobe](https://docs.itrsgroup.com/docs/geneos/current/Netprobe/introduction/netprobe-overview.html) that has the `xtender` cli tool installed, as well as a collection of templates and plugins. It is used to connect to [managed entities](https://docs.itrsgroup.com/docs/geneos/current/Gateway_Reference_Guide/gateway_managed_entities.htm#Operation) using the provided, third party, or custom plugins. An Xtender Netprobe is typically installed within the environment that it's tasked to monitor to reduce latency and allow connections within closed networks.
 
 ### Compatible distributions
-_Geneos Xtender_ is currently tested against the following distributions using the provided `deb` and `rpm` files (amd64 only):
-- Alma Linux 8
-- Alma Linux 9
-- Debian 11
-- Debian 12
-- Oracle Linux 8
-- Oracle Linux 9
-- Rocky Linux 8
-- Rocky Linux 9
+_Geneos Xtender_ is currently tested against the following distributions using the provided `deb` file (amd64 only):
 - Ubuntu 20.04
 
 The standalone binary is statically compiled using MUSL and should work on any modern x86_64 Linux distribution.
 
 ## Installation
-Download the RPM or DEB from [the latest release page](https://github.com/ITRS-Group/geneos-xtender/releases/latest/) and install accordingly.
+Download the DEB from [the latest release page](https://github.com/ITRS-Group/geneos-xtender/releases/latest/) and install accordingly.
 
 ## License
 

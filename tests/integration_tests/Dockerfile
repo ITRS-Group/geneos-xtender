@@ -1,43 +1,13 @@
-ARG IMAGE=ubuntu/ubuntu:latest
-FROM --platform=linux/amd64 $IMAGE
+ARG IMAGE=ubuntu/ubuntu:focal
+FROM $IMAGE
 
-# PKG can be deb OR rpm
-ARG PKG="deb"
-RUN if [ "$PKG" = "deb" ] ; then \
-      apt-get update && \
-      apt-get install -y \
-      bats \
-      curl \
-  ; elif [ "$PKG" = "rpm" ] ; then \
-      if $(grep -q 'Oracle.*8' /etc/system-release) ; then \
-        dnf install -y oracle-epel-release-el8 dnf-plugins-core && \
-        dnf config-manager -y --set-enabled ol8_developer_EPEL* && \
-        dnf config-manager -y --set-enabled ol8_codeready_builder && \
-        dnf update -y && \
-        dnf install -y bats \
-    ; elif $(grep -q 'Oracle.*9' /etc/system-release) ; then \
-        dnf install -y oracle-epel-release-el9 dnf-plugins-core && \
-        dnf config-manager -y --set-enabled ol9_developer_EPEL* && \
-        dnf config-manager -y --set-enabled ol9_codeready_builder && \
-        dnf update -y && \
-        dnf install -y bats \
-    ; elif $(grep -q 'Alma.*9' /etc/system-release) ; then \
-        dnf install -y epel-release dnf-plugins-core && \
-        dnf config-manager -y --set-enabled crb && \
-        dnf install -y bats \
-    ; else \
-        dnf install -y epel-release && \
-        /usr/bin/crb enable && \
-        dnf install -y bats \
-    ; fi \
-  ; fi
+RUN apt-get update && \
+    apt-get install -y \
+    bats \
+    curl
 
-COPY "./geneos-xtender*.$PKG" ./
-RUN if [ "$PKG" = "deb" ] ; then \
-      apt-get install -y ./geneos-xtender*.deb \
-  ; elif [ "$PKG" = "rpm" ] ; then \
-      dnf install -y ./geneos-xtender*.rpm \
-  ; fi
+COPY "./geneos-xtender*.deb" ./
+RUN apt-get update && apt-get install -y ./geneos-xtender*.deb && rm ./geneos-xtender*.deb
 
 COPY ./tests/bats/ ./tests/bats/
 
