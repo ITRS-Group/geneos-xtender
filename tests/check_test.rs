@@ -45,13 +45,15 @@ async fn test_run_all() {
 }
 
 #[test]
-#[should_panic]
 fn test_invalid_variable_in_name() {
-    CheckBuilder::new()
+    let c = CheckBuilder::new()
         .name("Hello $WORLD$")
         .command("echo hello world")
         .with_variables()
         .build();
+
+    // Invalid variable names are not replaced
+    assert_eq!(c.name, "Hello $WORLD$");
 }
 
 #[test]

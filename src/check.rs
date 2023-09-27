@@ -1,5 +1,6 @@
 use crate::result::{CheckResult, CheckResultBuilder, CheckResults};
 use log::debug;
+use serde::{Deserialize, Serialize};
 use shellwords;
 use std::fmt;
 use std::io::Read;
@@ -9,11 +10,15 @@ use wait_timeout::ChildExt;
 const RANGE_RE: &str = r"!!(A|B):([0-9]+)\.\.([0-9]+)!!";
 const VARIABLE_RE: &str = r"\$([A-Z_0-9]+)\$";
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Check {
     pub name: String,
     pub command: String,
     pub timeout: u64,
+    #[serde(skip)]
+    pub variables_found: Option<Vec<String>>,
+    #[serde(skip)]
+    pub variables_not_found: Option<Vec<String>>,
 }
 
 #[derive(Debug)]
@@ -21,6 +26,8 @@ pub struct CheckBuilder {
     name: Option<String>,
     command: Option<String>,
     timeout: Option<u64>,
+    variables_found: Option<Vec<String>>,
+    variables_not_found: Option<Vec<String>>,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -59,6 +66,8 @@ impl Default for Check {
             name: String::new(),
             command: String::new(),
             timeout: 5,
+            variables_found: None,
+            variables_not_found: None,
         }
     }
 }
@@ -69,6 +78,8 @@ impl Check {
             name: name.to_string(),
             command: command.to_string(),
             timeout,
+            variables_found: None,
+            variables_not_found: None,
         }
     }
 
@@ -115,7 +126,9 @@ impl Check {
     pub fn run(&self) -> CheckResult {
         let data = CheckResultBuilder::new()
             .name(&self.name)
-            .command(&self.command);
+            .command(&self.command)
+            .variables_found(&self.variables_found)
+            .variables_not_found(&self.variables_not_found);
 
         debug!("Running check: {:#?}", data);
 
@@ -213,6 +226,8 @@ impl Default for CheckBuilder {
             name: None,
             command: None,
             timeout: Some(5),
+            variables_found: None,
+            variables_not_found: None,
         }
     }
 }
@@ -239,33 +254,32 @@ impl CheckBuilder {
 
     pub fn with_variables(mut self) -> Self {
         if let Some(name) = &self.name {
-            let new_name = populate_variables_in_str(name);
-
-            match new_name {
-                Ok(s) => self.name = Some(s),
-                Err(e) => {
-                    panic!(
-                        "Failed to populate variables in name of check: {}\n{}\n",
-                        self.name.unwrap(),
-                        e
-                    );
-                }
-            }
+            self.name = populate_variables_in_str(name).new_string;
+            // if let Ok(new_name) = populate_variables_in_str(name) {
+            //     self.name = Some(new_name.0)
+            // }
         }
+
         if let Some(command) = &self.command {
             let new_command = populate_variables_in_str(command);
+            self.command = new_command.new_string;
+            self.variables_found = new_command.variables_found;
+            self.variables_not_found = new_command.variables_not_found;
 
-            match new_command {
-                Ok(s) => self.command = Some(s),
-                Err(e) => {
-                    panic!(
-                        "Failed to populate variables in command of check: {}\n{}\n",
-                        self.command.unwrap(),
-                        e
-                    );
-                }
-            }
+            // match new_command {
+            //     Ok(r) => {
+            //         self.command = Some(r.0);
+            //         self.variables_found = r.1;
+            //         self.variables_not_found = None;
+            //     }
+            //     Err(r) => {
+            //         self.command = Some(r.0);
+            //         self.variables_found = r.1;
+            //         self.variables_not_found = r.2;
+            //     }
+            // }
         }
+
         self
     }
 
@@ -274,6 +288,8 @@ impl CheckBuilder {
             name: self.name.unwrap_or_default(),
             command: self.command.unwrap_or_default(),
             timeout: self.timeout.unwrap_or_default(),
+            variables_found: None,
+            variables_not_found: None,
         }
     }
 
@@ -283,6 +299,8 @@ impl CheckBuilder {
             name: self.name.unwrap_or_default(),
             command: self.command.unwrap_or_default(),
             timeout: self.timeout.unwrap_or_default(),
+            variables_found: self.variables_found,
+            variables_not_found: self.variables_not_found,
         }
     }
 }
@@ -326,39 +344,78 @@ pub fn run_all_checks_sequentially(
     Ok(CheckResults(results))
 }
 
-fn populate_variables_in_str(s: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let variable_re = regex::Regex::new(VARIABLE_RE)?;
+#[derive(Debug, Default)]
+pub struct StringWithVariables {
+    pub original_string: String,
+    pub new_string: Option<String>,
+    pub variables_found: Option<Vec<String>>,
+    pub variables_not_found: Option<Vec<String>>,
+}
+
+pub trait StringWithVariablesExt {
+    fn from_str(s: &str) -> Self;
+}
+
+impl StringWithVariablesExt for StringWithVariables {
+    fn from_str(s: &str) -> Self {
+        Self {
+            original_string: s.to_string(),
+            new_string: None,
+            variables_found: None,
+            variables_not_found: None,
+        }
+    }
+}
+
+fn populate_variables_in_str(s: &str) -> StringWithVariables {
+    let mut string_with_variables = StringWithVariables::from_str(s);
+    let variable_re = regex::Regex::new(VARIABLE_RE).unwrap();
     let variables = variable_re
         .captures_iter(s)
-        .map(|c| c.get(1).unwrap().as_str())
-        .collect::<Vec<&str>>();
+        .map(|c| c.get(1).unwrap().as_str().to_string())
+        .collect::<Vec<String>>();
 
     if !variables.is_empty() {
         let mut s = s.to_string();
+        let mut found_variables = Vec::new();
         let mut missing_variables = Vec::new();
 
-        for variable in variables {
+        for variable in &variables {
             let value = std::env::var(variable);
 
             if let Ok(value) = value {
                 s = s.replace(&format!("${}$", variable), &value);
+                found_variables.push(variable.to_string());
             } else {
-                missing_variables.push(variable);
+                missing_variables.push(variable.to_string());
             }
         }
 
-        if !missing_variables.is_empty() {
-            return Err(format!(
-                "Missing environment variables:\n{}",
-                missing_variables.join("\n")
-            )
-            .into());
+        string_with_variables.new_string = Some(s);
+
+        found_variables.sort();
+        found_variables.dedup();
+
+        missing_variables.sort();
+        missing_variables.dedup();
+
+        if missing_variables.is_empty() {
+            string_with_variables.variables_found = Some(found_variables);
+            return string_with_variables;
         }
 
-        return Ok(s);
+        if found_variables.is_empty() {
+            string_with_variables.variables_not_found = Some(missing_variables);
+            return string_with_variables;
+        }
+
+        string_with_variables.variables_found = Some(found_variables);
+        string_with_variables.variables_not_found = Some(missing_variables);
+        return string_with_variables;
     }
 
-    Ok(s.to_string())
+    string_with_variables.new_string = Some(s.to_string());
+    string_with_variables
 }
 
 pub fn contains_named_range(s: &str) -> bool {
@@ -455,36 +512,44 @@ mod util_test {
         std::env::set_var("FOO", "bar");
         std::env::set_var("BAZ", "qux");
 
-        assert_eq!(populate_variables_in_str("hello").unwrap(), "hello");
         assert_eq!(
-            populate_variables_in_str("hello FOO$").unwrap(),
+            &populate_variables_in_str("hello").new_string.unwrap(),
+            "hello"
+        );
+        assert_eq!(
+            &populate_variables_in_str("hello FOO$").new_string.unwrap(),
             "hello FOO$"
         );
         assert_eq!(
-            populate_variables_in_str("hello $FOO").unwrap(),
+            &populate_variables_in_str("hello $FOO").new_string.unwrap(),
             "hello $FOO"
         );
         assert_eq!(
-            populate_variables_in_str("hello $FOO$").unwrap(),
+            &populate_variables_in_str("hello $FOO$").new_string.unwrap(),
             "hello bar"
         );
         assert_eq!(
-            populate_variables_in_str("hello $FOO$ $BAZ$").unwrap(),
+            &populate_variables_in_str("hello $FOO$ $BAZ$")
+                .new_string
+                .unwrap(),
             "hello bar qux"
         );
         assert_eq!(
-            populate_variables_in_str("hello $FOO$ $BAZ$ $FOO$").unwrap(),
+            &populate_variables_in_str("hello $FOO$ $BAZ$ $FOO$")
+                .new_string
+                .unwrap(),
             "hello bar qux bar"
         );
     }
 
     #[test]
-    #[should_panic]
     fn test_replace_variables_in_str_missing_var() {
         std::env::set_var("FOO", "bar");
         std::env::set_var("BAZ", "qux");
 
-        populate_variables_in_str("hello $FOO$ $MISSING$ $BAZ$").unwrap();
+        let r = populate_variables_in_str("hello $FOO$ $MISSING$ $BAZ$");
+
+        assert_eq!("hello bar $MISSING$ qux", r.new_string.unwrap());
     }
 
     #[test]
@@ -501,5 +566,30 @@ mod util_test {
             extract_ranges("!!A:1..2!! !!B:3..4!! !!C:5..6!!"),
             vec![Range::new("A", 1, 2), Range::new("B", 3, 4)]
         );
+    }
+
+    #[test]
+    fn test_existing_var_in_command_name() {
+        std::env::set_var("FOO", "bar");
+        std::env::set_var("BAZ", "qux");
+
+        let check = CheckBuilder::new()
+            .name("test $FOO$")
+            .command("echo $FOO$")
+            .build();
+
+        assert_eq!(check.name, "test bar");
+        assert_eq!(check.command, "echo bar");
+    }
+
+    #[test]
+    fn test_missing_var_in_command_name() {
+        let check = CheckBuilder::new()
+            .name("test $MISSING_ENV_VAR$")
+            .command("echo $MISSING_ENV_VAR$")
+            .build();
+
+        assert_eq!(check.name, "test $MISSING_ENV_VAR$");
+        assert_eq!(check.command, "echo $MISSING_ENV_VAR$");
     }
 }

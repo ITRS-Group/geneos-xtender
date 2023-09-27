@@ -12,6 +12,8 @@ pub struct CheckResult {
     long_output: String,
     performance_data: String,
     execution_time: String,
+    variables_found: Option<Vec<String>>,
+    variables_not_found: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default)]
@@ -23,6 +25,8 @@ pub struct CheckResultBuilder {
     long_output: Option<String>,
     performance_data: Option<String>,
     execution_time: Option<String>,
+    variables_found: Option<Vec<String>>,
+    variables_not_found: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -42,6 +46,8 @@ pub struct ProcessedCheckResult {
     performance_data_string: String,
     long_output: String,
     execution_time: String,
+    variables_found: Option<String>,
+    variables_not_found: Option<String>,
 }
 
 pub struct CheckResults(pub Vec<CheckResult>);
@@ -81,6 +87,14 @@ impl CheckResult {
     pub fn execution_time(&self) -> String {
         self.execution_time.to_string()
     }
+
+    pub fn variables_found(&self) -> Option<String> {
+        self.variables_found.as_ref().map(|v| v.join(","))
+    }
+
+    pub fn variables_not_found(&self) -> Option<String> {
+        self.variables_not_found.as_ref().map(|v| v.join(","))
+    }
 }
 
 impl CheckResultBuilder {
@@ -118,6 +132,16 @@ impl CheckResultBuilder {
         self
     }
 
+    pub fn variables_found(mut self, variables_found: &Option<Vec<String>>) -> Self {
+        self.variables_found = variables_found.clone();
+        self
+    }
+
+    pub fn variables_not_found(mut self, variables_not_found: &Option<Vec<String>>) -> Self {
+        self.variables_not_found = variables_not_found.clone();
+        self
+    }
+
     pub fn parse_output(mut self, output: &str) -> Self {
         self.short_output = Some(extract_short_output(output));
         self.long_output = Some(extract_long_output(output));
@@ -139,6 +163,8 @@ impl CheckResultBuilder {
             long_output: escape_chars(&self.long_output.unwrap_or_default()),
             performance_data: self.performance_data.unwrap_or_default(),
             execution_time: self.execution_time.unwrap_or_default(),
+            variables_found: self.variables_found,
+            variables_not_found: self.variables_not_found,
         }
     }
 }
@@ -208,6 +234,8 @@ impl ProcessedCheckResult {
             long_output: check_result.long_output(),
             performance_data_string: escape_chars(&check_result.performance_data()),
             execution_time: check_result.execution_time(),
+            variables_found: check_result.variables_found(),
+            variables_not_found: check_result.variables_not_found(),
             ..ProcessedCheckResult::default()
         }
     }

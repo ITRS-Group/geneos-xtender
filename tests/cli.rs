@@ -6,6 +6,8 @@ use std::process::Command; // Run programs
 use std::time::Instant;
 use tempfile::tempdir;
 
+const COLUMNS: &str = "name,status,shortOutput,label,value,uom,warn,crit,min,max,command,performanceDataString,longOutput,executionTime,variablesFound,variablesNotFound";
+
 #[test]
 fn test_cli_help() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("xtender")?;
@@ -34,8 +36,7 @@ fn test_cli_version() -> Result<(), Box<dyn std::error::Error>> {
 }
 #[test]
 fn test_missing_template_in_headline() -> Result<(), Box<dyn std::error::Error>> {
-    let expected_output = r#"name,status,shortOutput,label,value,uom,warn,crit,min,max,command,performanceDataString,longOutput,executionTime
-<!>templatesFound,
+    let expected_output = r#"<!>templatesFound,
 <!>templatesNotFound,/path/to/non_existing.yaml"#;
 
     let mut cmd = Command::cargo_bin("xtender")?;
@@ -44,6 +45,7 @@ fn test_missing_template_in_headline() -> Result<(), Box<dyn std::error::Error>>
 
     cmd.assert()
         .success()
+        .stdout(predicate::str::contains(COLUMNS))
         .stdout(predicate::str::contains(expected_output));
 
     Ok(())
@@ -69,7 +71,7 @@ fn test_valid_shasum_command() -> Result<(), Box<dyn std::error::Error>> {
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("name,status,shortOutput,label,value,uom,warn,crit,min,max,command,performanceDataString,longOutput"));
+        .stdout(predicate::str::contains(COLUMNS));
 
     drop(file);
     dir.close()?;
@@ -105,7 +107,7 @@ fn test_invalid_command_not_found() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn test_missing_template_in_headline_with_multiple_missing_templates(
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let expected_output = r#"name,status,shortOutput,label,value,uom,warn,crit,min,max,command,performanceDataString,longOutput,executionTime
+    let expected_output = r#"name,status,shortOutput,label,value,uom,warn,crit,min,max,command,performanceDataString,longOutput,executionTime,variablesFound,variablesNotFound
 <!>templatesFound,
 <!>templatesNotFound,/path/to/non_existing.yaml, /path/to/non_existing_2.yaml"#;
 
@@ -342,7 +344,6 @@ const BASIC_MULTIPLE_CHECKS_YAML: &str = r#"
 
 #[test]
 fn test_with_correct_multiple_entry_yaml_file() -> Result<(), Box<dyn std::error::Error>> {
-    let expected_output_0 = "name,status,shortOutput";
     let expected_output_1 = "test_with_multiple_yaml_file_1,0,Hello world!";
     let expected_output_2 = "test_with_multiple_yaml_file_2,0,Hello world!";
 
@@ -357,7 +358,7 @@ fn test_with_correct_multiple_entry_yaml_file() -> Result<(), Box<dyn std::error
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains(expected_output_0))
+        .stdout(predicate::str::contains(COLUMNS))
         .stdout(predicate::str::contains(expected_output_1))
         .stdout(predicate::str::contains(expected_output_2));
 
@@ -380,7 +381,6 @@ fn test_with_multiple_file_options_specified() -> Result<(), Box<dyn std::error:
     writeln!(file_1, "{}", BASIC_SINGLE_CHECK_YAML)?;
     writeln!(file_2, "{}", BASIC_MULTIPLE_CHECKS_YAML)?;
 
-    let expected_output_0 = "name,status,shortOutput";
     let expected_output_1 = "test_with_single_yaml_file,0,hello";
     let expected_output_2 = "test_with_multiple_yaml_file_1,0,Hello world!";
     let expected_output_3 = "test_with_multiple_yaml_file_2,0,Hello world!";
@@ -391,7 +391,7 @@ fn test_with_multiple_file_options_specified() -> Result<(), Box<dyn std::error:
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains(expected_output_0))
+        .stdout(predicate::str::contains(COLUMNS))
         .stdout(predicate::str::contains(expected_output_1))
         .stdout(predicate::str::contains(expected_output_2))
         .stdout(predicate::str::contains(expected_output_3));
@@ -431,7 +431,6 @@ const BASIC_CORRECT_YAML_WITH_SINGLE_QUOTED_STRING: &str = r#"
 #[test]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn test_args_containing_single_quoted_string() -> Result<(), Box<dyn std::error::Error>> {
-    let expected_output_0 = "name,status,shortOutput";
     let expected_output_1 =
         "test_with_single_quoted_string,0,Hello world!,,,,,,,,printf \'%s %s\' Hello world!,,";
 
@@ -446,7 +445,7 @@ fn test_args_containing_single_quoted_string() -> Result<(), Box<dyn std::error:
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains(expected_output_0))
+        .stdout(predicate::str::contains(COLUMNS))
         .stdout(predicate::str::contains(expected_output_1));
 
     drop(file_1);
@@ -467,7 +466,6 @@ const YAML_WITH_A_SINGLE_COMMAND_THAT_HAS_A_RANGE_VARIABLE: &str = r#"
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn test_with_a_single_command_that_has_a_range_variable() -> Result<(), Box<dyn std::error::Error>>
 {
-    let expected_output_0 = "name,status,shortOutput";
     let expected_output_1 = "test_1,0,Hello 1,,,,,,,,printf \'%s %s\' Hello 1,,";
     let expected_output_2 = "test_2,0,Hello 2,,,,,,,,printf \'%s %s\' Hello 2,,";
     let expected_output_3 = "test_3,0,Hello 3,,,,,,,,printf \'%s %s\' Hello 3,,";
@@ -487,7 +485,7 @@ fn test_with_a_single_command_that_has_a_range_variable() -> Result<(), Box<dyn 
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains(expected_output_0))
+        .stdout(predicate::str::contains(COLUMNS))
         .stdout(predicate::str::contains(expected_output_1))
         .stdout(predicate::str::contains(expected_output_2))
         .stdout(predicate::str::contains(expected_output_3));
@@ -519,7 +517,6 @@ fn test_with_a_single_command_that_has_two_range_variables_and_a_single_quoted_s
         YAML_WITH_A_SINGLE_COMMAND_THAT_HAS_TWO_IDENTICAL_RANGE_VARIABLES_AND_A_SINGLE_QUOTED_STRING
     )?;
 
-    let expected_output_0 = "name,status,shortOutput";
     let expected_output_1 = "test_1_1,0,Hello 1 1,,,,,,,,printf \'%s %s %s\' Hello 1 1,,";
     let expected_output_2 = "test_2_1,0,Hello 2 1,,,,,,,,printf \'%s %s %s\' Hello 2 1,,";
     let expected_output_3 = "test_3_1,0,Hello 3 1,,,,,,,,printf \'%s %s %s\' Hello 3 1,,";
@@ -536,7 +533,7 @@ fn test_with_a_single_command_that_has_two_range_variables_and_a_single_quoted_s
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains(expected_output_0))
+        .stdout(predicate::str::contains(COLUMNS))
         .stdout(predicate::str::contains(expected_output_1))
         .stdout(predicate::str::contains(expected_output_2))
         .stdout(predicate::str::contains(expected_output_3))
@@ -572,7 +569,6 @@ fn test_with_a_single_command_that_has_two_different_range_variables_and_a_singl
     )
     .unwrap();
 
-    let expected_output_0 = "name,status,shortOutput";
     let expected_output_1 = "test_1_2,0,Hello 1 2,,,,,,,,printf \'%s %s %s\' Hello 1 2,,";
     let expected_output_2 = "test_1_3,0,Hello 1 3,,,,,,,,printf \'%s %s %s\' Hello 1 3,,";
     let expected_output_3 = "test_2_2,0,Hello 2 2,,,,,,,,printf \'%s %s %s\' Hello 2 2,,";
@@ -584,7 +580,7 @@ fn test_with_a_single_command_that_has_two_different_range_variables_and_a_singl
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains(expected_output_0))
+        .stdout(predicate::str::contains(COLUMNS))
         .stdout(predicate::str::contains(expected_output_1))
         .stdout(predicate::str::contains(expected_output_2))
         .stdout(predicate::str::contains(expected_output_3))
@@ -621,19 +617,19 @@ fn test_that_sequential_option_renders_the_same_result_as_without() {
     // Smooth out the difference in execution time so that the test doesn't fail due to the
     // minor difference in execution time.
 
-    let execution_time_re = regex::Regex::new(r"\d+.\d+ s\n").unwrap();
+    let execution_time_re = regex::Regex::new(r"\d+.\d+ s,,\n").unwrap();
 
     let parallel_output_string = execution_time_re
         .replace_all(
             String::from_utf8_lossy(&parallel_output.stdout).as_ref(),
-            "1.0 s\n",
+            "1.0 s,,\n",
         )
         .to_string();
 
     let sequential_output_string = execution_time_re
         .replace_all(
             String::from_utf8_lossy(&sequential_output.stdout).as_ref(),
-            "1.0 s\n",
+            "1.0 s,,\n",
         )
         .to_string();
 
@@ -709,6 +705,74 @@ fn test_that_execution_time_is_correctly_printed() {
         .success()
         .stdout(predicate::str::contains("executionTime"))
         .stdout(predicate::str::contains("test_1,0,,,,,,,,,sleep 1,,,1.0"));
+
+    drop(file_1);
+    dir.close().unwrap();
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const YAML_WITH_KNOWN_ENVIRONMENT_VARIABLES: &str = r#"
+- name: test_user_variable
+  command: |
+    echo "user: $USER$"
+- name: test_path_variable
+  command: |
+    echo "path: $PATH$"
+"#;
+
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_known_environment_variables_are_correctly_printed() {
+    let dir = tempdir().unwrap();
+    let file_1_path = dir.path().join("file_1.yaml");
+    let mut file_1 = File::create(&file_1_path).unwrap();
+
+    writeln!(file_1, "{}", YAML_WITH_KNOWN_ENVIRONMENT_VARIABLES).unwrap();
+
+    let mut cmd = Command::cargo_bin("xtender").unwrap();
+    cmd.arg("--").arg(&file_1_path);
+
+    let current_user = std::env::var("USER").unwrap();
+    let current_path = std::env::var("PATH").unwrap();
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains(COLUMNS))
+        .stdout(predicate::str::contains("user:"))
+        .stdout(predicate::str::contains("path:"))
+        .stdout(predicate::str::contains(",USER,\n"))
+        .stdout(predicate::str::contains(",PATH,\n"))
+        .stdout(predicate::str::contains(current_user))
+        .stdout(predicate::str::contains(current_path));
+
+    drop(file_1);
+    dir.close().unwrap();
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const YAML_WITH_UNKNOWN_ENVIRONMENT_VARIABLES: &str = r#"
+- name: test_foo_bar_baz_variable
+  command: |
+    echo "foo_bar_baz: $FOO_BAR_BAZ$"
+"#;
+
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_unknown_environment_variables_are_correctly_printed() {
+    let dir = tempdir().unwrap();
+    let file_1_path = dir.path().join("file_1.yaml");
+    let mut file_1 = File::create(&file_1_path).unwrap();
+
+    writeln!(file_1, "{}", YAML_WITH_UNKNOWN_ENVIRONMENT_VARIABLES).unwrap();
+
+    let mut cmd = Command::cargo_bin("xtender").unwrap();
+    cmd.arg("--").arg(&file_1_path);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains(COLUMNS))
+        .stdout(predicate::str::contains("foo_bar_baz:"))
+        .stdout(predicate::str::contains(",,FOO_BAR_BAZ\n"));
 
     drop(file_1);
     dir.close().unwrap();
