@@ -73,16 +73,62 @@ The `range-name` can only be `A` or `B`. Note that ranges will be populated in o
 The option `-o` can be used to convert an [Opsview Opspack](https://www.opsview.com/product/system-monitoring) JSON file and print the output to stdout.
 
 ### Xtender Netprobes
-An _Xtender Netprobe_ is a [Netprobe](https://docs.itrsgroup.com/docs/geneos/current/Netprobe/introduction/netprobe-overview.html) that has the `xtender` cli tool installed, as well as a collection of templates and plugins. It is used to connect to [managed entities](https://docs.itrsgroup.com/docs/geneos/current/Gateway_Reference_Guide/gateway_managed_entities.htm#Operation) using the provided, third party, or custom plugins. An Xtender Netprobe is typically installed within the environment that it's tasked to monitor to reduce latency and allow connections within closed networks.
+An [Xtender Netprobe](https://github.com/ITRS-Group/geneos-xtender-netprobe) is a Docker container running a [Netprobe](https://docs.itrsgroup.com/docs/geneos/current/Netprobe/introduction/netprobe-overview.html), has the `xtender` CLI tool installed, as well as a large collection of templates and plugins (118 templates the last time I checked). You can use this to connect to [managed entities](https://docs.itrsgroup.com/docs/geneos/current/Gateway_Reference_Guide/gateway_managed_entities.htm#Operation) using the provided, third party, or custom plugins. An [Xtender Netprobe](https://github.com/ITRS-Group/geneos-xtender-netprobe) is typically installed within the environment that it's tasked to monitor to reduce latency and allow connections within closed networks.
 
 ### Compatible distributions
 _Geneos Xtender_ is currently tested against the following distributions using the provided `deb` file (amd64 only):
 - Ubuntu 20.04
 
-The standalone binary is statically compiled using MUSL and should work on any modern x86_64 Linux distribution.
+The standalone binary is statically compiled using [MUSL](https://musl.libc.org/) and should work on any modern x86_64 Linux distribution.
 
-## Installation
-Download the DEB from [the latest release page](https://github.com/ITRS-Group/geneos-xtender/releases/latest/) and install accordingly.
+## Usage
+The **recommended approach** is to deploy Geneos Xtender as an [Xtender Netprobe](https://github.com/ITRS-Group/geneos-xtender-netprobe) using Docker. This will include a whole suite of templates based on the available Opsview Opspacks.
+
+### Standard Docker container
+The docker image is available from the private Docker repository docker.itrsgroup.com which requires an active subscription. To log in, use:
+
+``` shell
+$ docker login docker.itrsgroup.com
+```
+
+You can then pull the image, optionally using any of the available tags:
+
+``` shell
+$ docker pull docker.itrsgroup.com/geneos-xtender-netprobe
+```
+
+You will need to expose (at least) port 7036 of the container to the Gateway.
+
+``` shell
+$ docker run -it -d --platform=linux/amd64 --name xtender-netprobe \ 
+  -p 7036:7036 docker.itrsgroup.com/geneos-xtender-netprobe
+```
+
+### Kubernetes using Helm
+Experimental Helm charts can be built in the `helm` directory. Note that using more than one replica is currently not tested and will not work with plugins that require data to be written to disk.
+
+You need to first create the secret `docker.itrsgroup.com` in your Kubernetes namespace. In this example, the namespace is named `itrs`.
+
+``` shell
+$ kubectl create secret docker-registry docker.itrsgroup.com \
+  --docker-server=docker.itrsgroup.com \
+  --docker-username=<ITRS Username> \
+  --docker-password=<ITRS Password> \
+  -n itrs
+
+```
+
+You need to then build the package:
+
+``` shell
+$ helm package ./helm && \
+  helm install geneos-xtender-netprobe \
+  ./geneos-xtender-netprobe-*.tgz \
+  -n itrs
+```
+
+### Stand-alone DEB file
+For a stand-alone installation, download the DEB from [the latest release page](https://github.com/ITRS-Group/geneos-xtender/releases/latest/) and install accordingly.
 
 ## License
 
