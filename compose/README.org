@@ -1,0 +1,87 @@
+* Docker Compose service for Geneos Xtender Netprobe
+
+One way of running an Xtender Netprobe is by using Docker Compose. The setup below assumes that you have already set up Docker as a systemd service and has been verified on Ubuntu 20.04.
+
+Run all the commands below as root or using sudo.
+
+** Log in to docker.itrsgroup.com
+#+BEGIN_SRC bash
+docker login docker.itrsgroup.com
+#+END_SRC
+
+** Pull the wanted version of the image
+#+BEGIN_SRC bash
+docker pull docker.itrsgroup.com/geneos-xtender-netprobe:23.10
+#+END_SRC
+
+** Create a directory /opt/xtender/docker if it doesn't already exist
+
+#+BEGIN_SRC bash
+mkdir -p /opt/xtender/docker
+#+END_SRC
+
+** Create the compose.yaml file /opt/xtender/docker/compose.yaml
+
+#+BEGIN_SRC bash
+cat <<EOF > /opt/xtender/docker/compose.yaml
+version: "3"
+services:
+  xtender-netprobe:
+    image: docker.itrsgroup.com/geneos-xtender-netprobe:23.10
+    platform: linux/amd64
+    ports:
+      - "57036:7036"
+      - "57136:7136"
+      - "57137:7137"
+      - "58125:8125"
+      - "59137:9137"
+      - "58125:8125/udp"
+    volumes:
+      - ./custom_plugins:/opt/xtender/plugins/custom:ro
+      - ./custom_templates:/opt/xtender/templates/custom:ro
+EOF
+#+END_SRC
+
+** Make sure the compose.yaml file has the right owner and permissions
+
+#+BEGIN_SRC bash
+chown -R root:root /opt/xtender/docker && chmod 644 /opt/xtender/docker/compose.yaml
+#+END_SRC
+
+** Create the /usr/lib/systemd/system/geneos-xtender-netprobe.service file
+
+#+BEGIN_SRC bash
+cat <<EOF > /usr/lib/systemd/system/geneos-xtender-netprobe.service
+[Unit]
+Description=geneos-xtender-netprobe service
+Requires=docker.service
+After=docker.service
+[Service]
+Type=simple
+WorkingDirectory=/opt/xtender/docker
+ExecStart=/usr/bin/docker compose -f /opt/xtender/docker/compose.yaml up
+ExecStop=/usr/bin/docker compose -f /opt/xtender/docker/compose.yaml down
+Restart=always
+RestartSec=10s
+[Install]
+WantedBy=multi-user.target
+EOF
+#+END_SRC
+
+** (Optional) If you're running a firewall, open the relevant ports, for example port 57036
+
+*** Using firewalld
+#+BEGIN_SRC bash
+firewall-cmd --add-port=57036/tcp --permanent && firewall-cmd --reload
+#+END_SRC
+
+*** Using UFW
+#+BEGIN_SRC bash
+ufw allow 57036/tcp
+#+END_SRC
+
+** Enable and start the systemd service geneos-xtender-netprobe
+
+#+BEGIN_SRC bash
+systemctl daemon-reload && systemctl enable --now geneos-xtender-netprobe.service
+#+END_SRC

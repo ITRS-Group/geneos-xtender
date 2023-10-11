@@ -104,28 +104,9 @@ $ docker run -it -d --platform=linux/amd64 --name xtender-netprobe \
   -p 7036:7036 docker.itrsgroup.com/geneos-xtender-netprobe
 ```
 
-### Kubernetes using Helm
-Experimental Helm charts can be built in the `helm` directory. Note that using more than one replica is currently not tested and will not work with plugins that require data to be written to disk.
+### Docker Compose service using SystemD (recommended)
 
-You need to first create the secret `docker.itrsgroup.com` in your Kubernetes namespace. In this example, the namespace is named `itrs`.
-
-``` shell
-$ kubectl create secret docker-registry docker.itrsgroup.com \
-  --docker-server=docker.itrsgroup.com \
-  --docker-username=<ITRS Username> \
-  --docker-password=<ITRS Password> \
-  -n itrs
-
-```
-
-You need to then build the package:
-
-``` shell
-$ helm package ./helm && \
-  helm install geneos-xtender-netprobe \
-  ./geneos-xtender-netprobe-*.tgz \
-  -n itrs
-```
+See [the separate documentation page](compose/README.org) describing this procedure.
 
 ### Stand-alone DEB file
 For a stand-alone installation, download the DEB from [the latest release page](https://github.com/ITRS-Group/geneos-xtender/releases/latest/) and install accordingly.
