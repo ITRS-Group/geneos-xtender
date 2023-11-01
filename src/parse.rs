@@ -1,7 +1,6 @@
 use serde::Serialize;
 use std::error::Error;
 use std::fmt;
-use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 const VARIABLE_RE: &str = r"\$([A-Z_0-9]+)\$";
@@ -43,8 +42,8 @@ pub struct VariableLookupError;
 
 impl Error for VariableLookupError {}
 
-impl Display for VariableLookupError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl fmt::Display for VariableLookupError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Failed to lookup Variable")
     }
 }
@@ -100,8 +99,8 @@ pub enum VariableStringParseError {
 
 impl Error for VariableStringParseError {}
 
-impl Display for VariableStringParseError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+impl fmt::Display for VariableStringParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             VariableStringParseError::RegexError => {
                 write!(f, "Failed to compile VariableString Regex")
