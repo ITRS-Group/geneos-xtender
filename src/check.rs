@@ -1,3 +1,4 @@
+use crate::range::{Range, Ranges, RangesExt};
 use crate::result::{CheckResult, CheckResultBuilder, CheckResults};
 use crate::variable::{VariableString, Variables};
 use log::debug;
@@ -8,8 +9,6 @@ use std::io::Read;
 use std::str::FromStr;
 use std::time::Duration;
 use wait_timeout::ChildExt;
-
-const RANGE_RE: &str = r"!!(A|B):([0-9]+)\.\.([0-9]+)!!";
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Check {
@@ -31,15 +30,7 @@ pub struct CheckBuilder {
     variables_not_found: Option<Variables>,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Range {
-    pub name: String,
-    pub start: i32,
-    pub end: i32,
-}
-
 pub type Checks = Vec<Check>;
-pub type Ranges = Vec<Range>;
 
 pub trait ChecksExt {
     fn total_time_from_timeouts(&self) -> Duration;
@@ -91,11 +82,11 @@ impl Check {
     pub fn expand_ranges(self) -> Checks {
         let mut checks = Checks::new();
 
-        let mut name_ranges = extract_ranges(&self.name);
+        let mut name_ranges = Ranges::from_str(&self.name);
         name_ranges.sort();
         name_ranges.dedup();
 
-        let mut command_ranges = extract_ranges(&self.command);
+        let mut command_ranges = Ranges::from_str(&self.command);
         command_ranges.sort();
         command_ranges.dedup();
 
@@ -290,16 +281,6 @@ impl CheckBuilder {
     }
 }
 
-impl Range {
-    pub fn new(name: &str, start: i32, end: i32) -> Self {
-        Self {
-            name: name.to_string(),
-            start,
-            end,
-        }
-    }
-}
-
 impl ChecksExt for Checks {
     fn total_time_from_timeouts(&self) -> Duration {
         self.iter()
@@ -307,66 +288,6 @@ impl ChecksExt for Checks {
             .map(Duration::from_secs)
             .sum()
     }
-}
-
-pub async fn run_all_checks_in_parallel(
-    checks: Checks,
-) -> Result<CheckResults, Box<dyn std::error::Error>> {
-    let futures = checks
-        .into_iter()
-        .map(|check| tokio::task::spawn_blocking(move || check.run()));
-    let results = futures::future::join_all(futures)
-        .await
-        .into_iter()
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(CheckResults(results))
-}
-
-pub fn run_all_checks_sequentially(
-    checks: Checks,
-) -> Result<CheckResults, Box<dyn std::error::Error>> {
-    let results = checks.into_iter().map(|check| check.run()).collect();
-    Ok(CheckResults(results))
-}
-
-pub fn contains_named_range(s: &str) -> bool {
-    let range_re = regex::Regex::new(RANGE_RE).unwrap();
-    range_re.is_match(s)
-}
-
-pub fn contains_multiple_ranges(s: &str) -> bool {
-    let range_re = regex::Regex::new(RANGE_RE).unwrap();
-    let mut ranges = Vec::new();
-
-    for c in range_re.captures_iter(s) {
-        let name = c.get(1).unwrap().as_str();
-        let start = c.get(2).unwrap().as_str().parse::<i32>().unwrap();
-        let end = c.get(3).unwrap().as_str().parse::<i32>().unwrap();
-        ranges.push((name, start, end));
-    }
-
-    if ranges.is_empty() || ranges.len() == 1 {
-        return false;
-    }
-
-    ranges.sort();
-    ranges.dedup();
-
-    ranges.len() > 1
-}
-
-fn extract_ranges(s: &str) -> Ranges {
-    let range_re = regex::Regex::new(RANGE_RE).unwrap();
-    let mut ranges = Ranges::new();
-
-    for c in range_re.captures_iter(s) {
-        let name = c.get(1).unwrap().as_str().to_string();
-        let start = c.get(2).unwrap().as_str().parse::<i32>().unwrap();
-        let end = c.get(3).unwrap().as_str().parse::<i32>().unwrap();
-        ranges.push(Range::new(&name, start, end));
-    }
-
-    ranges
 }
 
 fn expand_checks_from_single_range(check: &Check, range: &Range) -> Checks {
@@ -414,85 +335,30 @@ fn expand_checks_from_double_range(check: &Check, range1: &Range, range2: &Range
     checks
 }
 
+pub async fn run_all_checks_in_parallel(
+    checks: Checks,
+) -> Result<CheckResults, Box<dyn std::error::Error>> {
+    let futures = checks
+        .into_iter()
+        .map(|check| tokio::task::spawn_blocking(move || check.run()));
+    let results = futures::future::join_all(futures)
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(CheckResults(results))
+}
+
+pub fn run_all_checks_sequentially(
+    checks: Checks,
+) -> Result<CheckResults, Box<dyn std::error::Error>> {
+    let results = checks.into_iter().map(|check| check.run()).collect();
+    Ok(CheckResults(results))
+}
+
 #[cfg(test)]
-mod util_test {
+mod check_test {
     use super::*;
     use pretty_assertions::assert_eq;
-    #[test]
-    fn test_replace_variables_in_str() {
-        std::env::set_var("FOO", "bar");
-        std::env::set_var("BAZ", "qux");
-
-        assert_eq!(
-            &VariableString::from_str("hello")
-                .unwrap()
-                .new_string
-                .unwrap(),
-            "hello"
-        );
-        assert_eq!(
-            &VariableString::from_str("hello FOO$")
-                .unwrap()
-                .new_string
-                .unwrap(),
-            "hello FOO$"
-        );
-        assert_eq!(
-            &VariableString::from_str("hello $FOO")
-                .unwrap()
-                .new_string
-                .unwrap(),
-            "hello $FOO"
-        );
-        assert_eq!(
-            &VariableString::from_str("hello $FOO$")
-                .unwrap()
-                .new_string
-                .unwrap(),
-            "hello bar"
-        );
-        assert_eq!(
-            &VariableString::from_str("hello $FOO$ $BAZ$")
-                .unwrap()
-                .new_string
-                .unwrap(),
-            "hello bar qux"
-        );
-        assert_eq!(
-            &VariableString::from_str("hello $FOO$ $BAZ$ $FOO$")
-                .unwrap()
-                .new_string
-                .unwrap(),
-            "hello bar qux bar"
-        );
-    }
-
-    #[test]
-    fn test_replace_variables_in_str_missing_var() {
-        std::env::set_var("FOO", "bar");
-        std::env::set_var("BAZ", "qux");
-
-        let r = VariableString::from_str("hello $FOO$ $MISSING$ $BAZ$");
-
-        assert_eq!("hello bar $MISSING$ qux", r.unwrap().new_string.unwrap());
-    }
-
-    #[test]
-    fn test_extract_ranges() {
-        assert_eq!(extract_ranges(""), vec![]);
-        assert_eq!(extract_ranges("!!A:1..2!!"), vec![Range::new("A", 1, 2)]);
-        assert_eq!(extract_ranges("!!B:3..4!!"), vec![Range::new("B", 3, 4)]);
-        assert_eq!(
-            extract_ranges("!!A:1..2!! !!B:3..4!!"),
-            vec![Range::new("A", 1, 2), Range::new("B", 3, 4)]
-        );
-        // Only A or B is allowed.
-        assert_eq!(
-            extract_ranges("!!A:1..2!! !!B:3..4!! !!C:5..6!!"),
-            vec![Range::new("A", 1, 2), Range::new("B", 3, 4)]
-        );
-    }
-
     #[test]
     fn test_existing_var_in_command_name() {
         std::env::set_var("FOO", "bar");

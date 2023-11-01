@@ -194,3 +194,67 @@ impl FromStr for VariableString {
         })
     }
 }
+
+#[cfg(test)]
+mod variable_test {
+    use super::*;
+    use pretty_assertions::assert_eq;
+    #[test]
+    fn test_replace_variables_in_str() {
+        std::env::set_var("FOO", "bar");
+        std::env::set_var("BAZ", "qux");
+
+        assert_eq!(
+            &VariableString::from_str("hello")
+                .unwrap()
+                .new_string
+                .unwrap(),
+            "hello"
+        );
+        assert_eq!(
+            &VariableString::from_str("hello FOO$")
+                .unwrap()
+                .new_string
+                .unwrap(),
+            "hello FOO$"
+        );
+        assert_eq!(
+            &VariableString::from_str("hello $FOO")
+                .unwrap()
+                .new_string
+                .unwrap(),
+            "hello $FOO"
+        );
+        assert_eq!(
+            &VariableString::from_str("hello $FOO$")
+                .unwrap()
+                .new_string
+                .unwrap(),
+            "hello bar"
+        );
+        assert_eq!(
+            &VariableString::from_str("hello $FOO$ $BAZ$")
+                .unwrap()
+                .new_string
+                .unwrap(),
+            "hello bar qux"
+        );
+        assert_eq!(
+            &VariableString::from_str("hello $FOO$ $BAZ$ $FOO$")
+                .unwrap()
+                .new_string
+                .unwrap(),
+            "hello bar qux bar"
+        );
+    }
+
+    #[test]
+    fn test_replace_variables_in_str_missing_var() {
+        std::env::set_var("FOO", "bar");
+        std::env::set_var("BAZ", "qux");
+
+        let r = VariableString::from_str("hello $FOO$ $MISSING$ $BAZ$");
+
+        assert_eq!("hello bar $MISSING$ qux", r.unwrap().new_string.unwrap());
+    }
+}
