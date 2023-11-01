@@ -1,4 +1,4 @@
-use crate::check::{Variables, VariablesExt};
+use crate::parse::{Variables, VariablesExt};
 use regex::Regex;
 use serde::Serialize;
 use std::str::FromStr;
