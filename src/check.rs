@@ -16,9 +16,9 @@ pub struct Check {
     pub command: String,
     pub timeout: u64,
     #[serde(skip)]
-    pub variables_found: Option<Vec<String>>,
+    pub variables_found: Option<Variables>,
     #[serde(skip)]
-    pub variables_not_found: Option<Vec<String>>,
+    pub variables_not_found: Option<Variables>,
 }
 
 #[derive(Debug)]
@@ -26,8 +26,8 @@ pub struct CheckBuilder {
     name: Option<String>,
     command: Option<String>,
     timeout: Option<u64>,
-    variables_found: Option<Vec<String>>,
-    variables_not_found: Option<Vec<String>>,
+    variables_found: Option<Variables>,
+    variables_not_found: Option<Variables>,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -254,30 +254,14 @@ impl CheckBuilder {
 
     pub fn with_variables(mut self) -> Self {
         if let Some(name) = &self.name {
-            self.name = populate_variables_in_str(name).new_string;
-            // if let Ok(new_name) = populate_variables_in_str(name) {
-            //     self.name = Some(new_name.0)
-            // }
+            self.name = StringWithVariables::from_str(name).new_string;
         }
 
         if let Some(command) = &self.command {
-            let new_command = populate_variables_in_str(command);
+            let new_command = StringWithVariables::from_str(command);
             self.command = new_command.new_string;
             self.variables_found = new_command.variables_found;
             self.variables_not_found = new_command.variables_not_found;
-
-            // match new_command {
-            //     Ok(r) => {
-            //         self.command = Some(r.0);
-            //         self.variables_found = r.1;
-            //         self.variables_not_found = None;
-            //     }
-            //     Err(r) => {
-            //         self.command = Some(r.0);
-            //         self.variables_found = r.1;
-            //         self.variables_not_found = r.2;
-            //     }
-            // }
         }
 
         self
@@ -344,78 +328,147 @@ pub fn run_all_checks_sequentially(
     Ok(CheckResults(results))
 }
 
+pub type VariableName = String;
+pub type VariableValue = Option<String>;
+
+pub type Variables = Vec<VariableKind>;
+pub trait VariablesExt {
+    fn to_string(&self) -> String;
+}
+
+impl VariablesExt for Variables {
+    fn to_string(&self) -> String {
+        let strings = self
+            .iter()
+            .map(|v| match v {
+                VariableKind::Public(v) => v.to_public_string(),
+                VariableKind::Secret(v) => v.to_secret_string(),
+            })
+            .collect::<Vec<String>>();
+
+        if strings.is_empty() {
+            return String::new();
+        }
+
+        strings.join(",")
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+pub enum Variable {
+    Found(VariableName, VariableValue),
+    NotFound(VariableName),
+}
+
+impl Variable {
+    pub fn from_str(s: &str) -> Self {
+        let value = std::env::var(s);
+        if let Ok(value) = value {
+            Self::Found(s.to_string(), Some(value))
+        } else {
+            Self::NotFound(s.to_string())
+        }
+    }
+
+    pub fn to_public_string(&self) -> String {
+        match self {
+            Variable::Found(name, value) => format!("{}=\"{}\"", name, value.as_ref().unwrap()),
+            Variable::NotFound(name) => name.clone(),
+        }
+    }
+
+    pub fn to_secret_string(&self) -> String {
+        match self {
+            Variable::Found(name, _) => format!("{}=***", name),
+            Variable::NotFound(name) => name.clone(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+pub enum VariableKind {
+    Public(Variable),
+    Secret(Variable),
+}
+
 #[derive(Debug, Default)]
 pub struct StringWithVariables {
     pub original_string: String,
     pub new_string: Option<String>,
-    pub variables_found: Option<Vec<String>>,
-    pub variables_not_found: Option<Vec<String>>,
+    pub variables_found: Option<Variables>,
+    pub variables_not_found: Option<Variables>,
 }
 
-pub trait StringWithVariablesExt {
-    fn from_str(s: &str) -> Self;
-}
-
-impl StringWithVariablesExt for StringWithVariables {
+impl StringWithVariables {
     fn from_str(s: &str) -> Self {
+        let variable_re = regex::Regex::new(VARIABLE_RE).unwrap();
+        let variable_names = variable_re
+            .captures_iter(s)
+            .map(|c| c.get(1).unwrap().as_str().to_string())
+            .collect::<Vec<VariableName>>();
+
+        let mut new_string = s.to_string();
+
+        let mut found_variables = Variables::new();
+        let mut missing_variables = Variables::new();
+
+        if !variable_names.is_empty() {
+            for variable_name in &variable_names {
+                let variable = Variable::from_str(variable_name);
+
+                match variable {
+                    Variable::Found(name, value)
+                        if value.as_ref().is_some_and(|x| x.starts_with("+encs+")) =>
+                    // TODO: Is this what I want to do or do I want to replace the value with ***?
+                    {
+                        new_string =
+                            new_string.replace(&format!("${}$", name), value.as_ref().unwrap());
+                        found_variables.push(VariableKind::Secret(Variable::Found(
+                            name.to_string(),
+                            value,
+                        )));
+                    }
+                    Variable::Found(name, value) => {
+                        new_string =
+                            new_string.replace(&format!("${}$", name), value.as_ref().unwrap());
+                        found_variables.push(VariableKind::Public(Variable::Found(
+                            name.to_string(),
+                            value,
+                        )));
+                    }
+                    Variable::NotFound(name) => {
+                        missing_variables
+                            .push(VariableKind::Public(Variable::NotFound(name.to_string())));
+                    }
+                }
+            }
+
+            found_variables.sort();
+            found_variables.dedup();
+
+            missing_variables.sort();
+            missing_variables.dedup();
+        }
+
         Self {
             original_string: s.to_string(),
-            new_string: None,
-            variables_found: None,
-            variables_not_found: None,
+            new_string: Some(new_string),
+            variables_found: {
+                if !found_variables.is_empty() {
+                    Some(found_variables)
+                } else {
+                    None
+                }
+            },
+            variables_not_found: {
+                if !missing_variables.is_empty() {
+                    Some(missing_variables)
+                } else {
+                    None
+                }
+            },
         }
     }
-}
-
-fn populate_variables_in_str(s: &str) -> StringWithVariables {
-    let mut string_with_variables = StringWithVariables::from_str(s);
-    let variable_re = regex::Regex::new(VARIABLE_RE).unwrap();
-    let variables = variable_re
-        .captures_iter(s)
-        .map(|c| c.get(1).unwrap().as_str().to_string())
-        .collect::<Vec<String>>();
-
-    if !variables.is_empty() {
-        let mut s = s.to_string();
-        let mut found_variables = Vec::new();
-        let mut missing_variables = Vec::new();
-
-        for variable in &variables {
-            let value = std::env::var(variable);
-
-            if let Ok(value) = value {
-                s = s.replace(&format!("${}$", variable), &value);
-                found_variables.push(variable.to_string());
-            } else {
-                missing_variables.push(variable.to_string());
-            }
-        }
-
-        string_with_variables.new_string = Some(s);
-
-        found_variables.sort();
-        found_variables.dedup();
-
-        missing_variables.sort();
-        missing_variables.dedup();
-
-        if missing_variables.is_empty() {
-            string_with_variables.variables_found = Some(found_variables);
-            return string_with_variables;
-        }
-
-        if found_variables.is_empty() {
-            string_with_variables.variables_not_found = Some(missing_variables);
-            return string_with_variables;
-        }
-
-        string_with_variables.variables_found = Some(found_variables);
-        string_with_variables.variables_not_found = Some(missing_variables);
-        return string_with_variables;
-    }
-
-    string_with_variables.new_string = Some(s.to_string());
-    string_with_variables
 }
 
 pub fn contains_named_range(s: &str) -> bool {
@@ -513,29 +566,35 @@ mod util_test {
         std::env::set_var("BAZ", "qux");
 
         assert_eq!(
-            &populate_variables_in_str("hello").new_string.unwrap(),
+            &StringWithVariables::from_str("hello").new_string.unwrap(),
             "hello"
         );
         assert_eq!(
-            &populate_variables_in_str("hello FOO$").new_string.unwrap(),
+            &StringWithVariables::from_str("hello FOO$")
+                .new_string
+                .unwrap(),
             "hello FOO$"
         );
         assert_eq!(
-            &populate_variables_in_str("hello $FOO").new_string.unwrap(),
+            &StringWithVariables::from_str("hello $FOO")
+                .new_string
+                .unwrap(),
             "hello $FOO"
         );
         assert_eq!(
-            &populate_variables_in_str("hello $FOO$").new_string.unwrap(),
+            &StringWithVariables::from_str("hello $FOO$")
+                .new_string
+                .unwrap(),
             "hello bar"
         );
         assert_eq!(
-            &populate_variables_in_str("hello $FOO$ $BAZ$")
+            &StringWithVariables::from_str("hello $FOO$ $BAZ$")
                 .new_string
                 .unwrap(),
             "hello bar qux"
         );
         assert_eq!(
-            &populate_variables_in_str("hello $FOO$ $BAZ$ $FOO$")
+            &StringWithVariables::from_str("hello $FOO$ $BAZ$ $FOO$")
                 .new_string
                 .unwrap(),
             "hello bar qux bar"
@@ -547,7 +606,7 @@ mod util_test {
         std::env::set_var("FOO", "bar");
         std::env::set_var("BAZ", "qux");
 
-        let r = populate_variables_in_str("hello $FOO$ $MISSING$ $BAZ$");
+        let r = StringWithVariables::from_str("hello $FOO$ $MISSING$ $BAZ$");
 
         assert_eq!("hello bar $MISSING$ qux", r.new_string.unwrap());
     }

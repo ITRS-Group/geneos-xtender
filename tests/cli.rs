@@ -738,12 +738,69 @@ fn test_known_environment_variables_are_correctly_printed() {
     cmd.assert()
         .success()
         .stdout(predicate::str::contains(COLUMNS))
+        .stdout(predicate::str::contains(format!(
+            "\"user: {}\",",
+            current_user
+        )))
+        .stdout(predicate::str::contains(format!(
+            "\"path: {}\",",
+            current_path
+        )))
+        .stdout(predicate::str::contains(format!(
+            ",USER=\"{}\",\n",
+            current_user
+        )))
+        .stdout(predicate::str::contains(format!(
+            ",PATH=\"{}\",\n",
+            current_path
+        )));
+
+    drop(file_1);
+    dir.close().unwrap();
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const YAML_WITH_MULTIPLE_KNOWN_ENVIRONMENT_VARIABLES_IN_ONE_COMMAND: &str = r#"
+- name: test_user_and_path_variable
+  command: |
+    echo "user: $USER$, path: $PATH$"
+"#;
+
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_multiple_known_environment_variables_in_one_command_are_correctly_printed() {
+    let dir = tempdir().unwrap();
+    let file_1_path = dir.path().join("file_1.yaml");
+    let mut file_1 = File::create(&file_1_path).unwrap();
+
+    writeln!(
+        file_1,
+        "{}",
+        YAML_WITH_MULTIPLE_KNOWN_ENVIRONMENT_VARIABLES_IN_ONE_COMMAND
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("xtender").unwrap();
+    cmd.arg("--").arg(&file_1_path);
+
+    let current_user = std::env::var("USER").unwrap();
+    let current_path = std::env::var("PATH").unwrap();
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains(COLUMNS))
         .stdout(predicate::str::contains("user:"))
         .stdout(predicate::str::contains("path:"))
-        .stdout(predicate::str::contains(",USER,\n"))
-        .stdout(predicate::str::contains(",PATH,\n"))
-        .stdout(predicate::str::contains(current_user))
-        .stdout(predicate::str::contains(current_path));
+        .stdout(predicate::str::contains(format!(
+            "\"user: {}\\, path: {}\",",
+            current_user, current_path
+        )))
+        // Even though the variables in the command were listed with "USER" first, the output should
+        // be sorted alphabetically.
+        .stdout(predicate::str::contains(format!(
+            ",PATH=\"{}\",USER=\"{}\",\n",
+            current_path, current_user
+        )));
 
     drop(file_1);
     dir.close().unwrap();

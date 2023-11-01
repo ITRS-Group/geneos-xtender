@@ -1,3 +1,4 @@
+use crate::check::{Variables, VariablesExt};
 use regex::Regex;
 use serde::Serialize;
 use std::str::FromStr;
@@ -12,8 +13,8 @@ pub struct CheckResult {
     long_output: String,
     performance_data: String,
     execution_time: String,
-    variables_found: Option<Vec<String>>,
-    variables_not_found: Option<Vec<String>>,
+    variables_found: Option<Variables>,
+    variables_not_found: Option<Variables>,
 }
 
 #[derive(Debug, Default)]
@@ -25,8 +26,8 @@ pub struct CheckResultBuilder {
     long_output: Option<String>,
     performance_data: Option<String>,
     execution_time: Option<String>,
-    variables_found: Option<Vec<String>>,
-    variables_not_found: Option<Vec<String>>,
+    variables_found: Option<Variables>,
+    variables_not_found: Option<Variables>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -89,11 +90,17 @@ impl CheckResult {
     }
 
     pub fn variables_found(&self) -> Option<String> {
-        self.variables_found.as_ref().map(|v| v.join(","))
+        match self.variables_found {
+            Some(ref vars) if !vars.is_empty() => Some(vars.to_string()),
+            _ => None,
+        }
     }
 
     pub fn variables_not_found(&self) -> Option<String> {
-        self.variables_not_found.as_ref().map(|v| v.join(","))
+        match self.variables_not_found {
+            Some(ref vars) if !vars.is_empty() => Some(vars.to_string()),
+            _ => None,
+        }
     }
 }
 
@@ -132,12 +139,12 @@ impl CheckResultBuilder {
         self
     }
 
-    pub fn variables_found(mut self, variables_found: &Option<Vec<String>>) -> Self {
+    pub fn variables_found(mut self, variables_found: &Option<Variables>) -> Self {
         self.variables_found = variables_found.clone();
         self
     }
 
-    pub fn variables_not_found(mut self, variables_not_found: &Option<Vec<String>>) -> Self {
+    pub fn variables_not_found(mut self, variables_not_found: &Option<Variables>) -> Self {
         self.variables_not_found = variables_not_found.clone();
         self
     }
