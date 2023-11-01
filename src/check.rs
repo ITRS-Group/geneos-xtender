@@ -1,5 +1,5 @@
-use crate::parse::{VariableString, Variables};
 use crate::result::{CheckResult, CheckResultBuilder, CheckResults};
+use crate::variable::{VariableString, Variables};
 use log::debug;
 use serde::{Deserialize, Serialize};
 use shellwords;
