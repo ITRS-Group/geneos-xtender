@@ -2,8 +2,11 @@ use crate::result::{CheckResult, CheckResultBuilder, CheckResults};
 use log::debug;
 use serde::{Deserialize, Serialize};
 use shellwords;
+use std::error::Error;
 use std::fmt;
+use std::fmt::{Display, Formatter};
 use std::io::Read;
+use std::str::FromStr;
 use std::time::Duration;
 use wait_timeout::ChildExt;
 
@@ -254,11 +257,11 @@ impl CheckBuilder {
 
     pub fn with_variables(mut self) -> Self {
         if let Some(name) = &self.name {
-            self.name = StringWithVariables::from_str(name).new_string;
+            self.name = VariableString::from_str(name).unwrap().new_string;
         }
 
         if let Some(command) = &self.command {
-            let new_command = StringWithVariables::from_str(command);
+            let new_command = VariableString::from_str(command).unwrap();
             self.command = new_command.new_string;
             self.variables_found = new_command.variables_found;
             self.variables_not_found = new_command.variables_not_found;
@@ -360,16 +363,31 @@ pub enum Variable {
     NotFound(VariableName),
 }
 
-impl Variable {
-    pub fn from_str(s: &str) -> Self {
+#[derive(Debug)]
+pub struct VariableLookupError;
+
+impl Error for VariableLookupError {}
+
+impl Display for VariableLookupError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "Failed to lookup Variable")
+    }
+}
+
+impl FromStr for Variable {
+    type Err = VariableLookupError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         let value = std::env::var(s);
         if let Ok(value) = value {
-            Self::Found(s.to_string(), Some(value))
+            Ok(Self::Found(s.to_string(), Some(value)))
         } else {
-            Self::NotFound(s.to_string())
+            Ok(Self::NotFound(s.to_string()))
         }
     }
+}
 
+impl Variable {
     pub fn to_public_string(&self) -> String {
         match self {
             Variable::Found(name, value) => format!("{}=\"{}\"", name, value.as_ref().unwrap()),
@@ -392,16 +410,49 @@ pub enum VariableKind {
 }
 
 #[derive(Debug, Default)]
-pub struct StringWithVariables {
+pub struct VariableString {
     pub original_string: String,
     pub new_string: Option<String>,
     pub variables_found: Option<Variables>,
     pub variables_not_found: Option<Variables>,
 }
 
-impl StringWithVariables {
-    fn from_str(s: &str) -> Self {
-        let variable_re = regex::Regex::new(VARIABLE_RE).unwrap();
+#[derive(Debug)]
+pub enum VariableStringParseError {
+    RegexError,
+    VariableError(Box<dyn Error>),
+}
+
+impl Error for VariableStringParseError {}
+
+impl Display for VariableStringParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            VariableStringParseError::RegexError => {
+                write!(f, "Failed to compile VariableString Regex")
+            }
+            VariableStringParseError::VariableError(err) => write!(f, "Variable error: {}", err),
+        }
+    }
+}
+
+impl From<regex::Error> for VariableStringParseError {
+    fn from(_: regex::Error) -> Self {
+        VariableStringParseError::RegexError
+    }
+}
+
+impl From<VariableLookupError> for VariableStringParseError {
+    fn from(err: VariableLookupError) -> Self {
+        VariableStringParseError::VariableError(Box::new(err))
+    }
+}
+
+impl FromStr for VariableString {
+    type Err = VariableStringParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let variable_re = regex::Regex::new(VARIABLE_RE)?;
         let variable_names = variable_re
             .captures_iter(s)
             .map(|c| c.get(1).unwrap().as_str().to_string())
@@ -414,7 +465,7 @@ impl StringWithVariables {
 
         if !variable_names.is_empty() {
             for variable_name in &variable_names {
-                let variable = Variable::from_str(variable_name);
+                let variable = Variable::from_str(variable_name)?;
 
                 match variable {
                     Variable::Found(name, value)
@@ -450,7 +501,7 @@ impl StringWithVariables {
             missing_variables.dedup();
         }
 
-        Self {
+        Ok(Self {
             original_string: s.to_string(),
             new_string: Some(new_string),
             variables_found: {
@@ -467,7 +518,7 @@ impl StringWithVariables {
                     None
                 }
             },
-        }
+        })
     }
 }
 
@@ -566,35 +617,43 @@ mod util_test {
         std::env::set_var("BAZ", "qux");
 
         assert_eq!(
-            &StringWithVariables::from_str("hello").new_string.unwrap(),
+            &VariableString::from_str("hello")
+                .unwrap()
+                .new_string
+                .unwrap(),
             "hello"
         );
         assert_eq!(
-            &StringWithVariables::from_str("hello FOO$")
+            &VariableString::from_str("hello FOO$")
+                .unwrap()
                 .new_string
                 .unwrap(),
             "hello FOO$"
         );
         assert_eq!(
-            &StringWithVariables::from_str("hello $FOO")
+            &VariableString::from_str("hello $FOO")
+                .unwrap()
                 .new_string
                 .unwrap(),
             "hello $FOO"
         );
         assert_eq!(
-            &StringWithVariables::from_str("hello $FOO$")
+            &VariableString::from_str("hello $FOO$")
+                .unwrap()
                 .new_string
                 .unwrap(),
             "hello bar"
         );
         assert_eq!(
-            &StringWithVariables::from_str("hello $FOO$ $BAZ$")
+            &VariableString::from_str("hello $FOO$ $BAZ$")
+                .unwrap()
                 .new_string
                 .unwrap(),
             "hello bar qux"
         );
         assert_eq!(
-            &StringWithVariables::from_str("hello $FOO$ $BAZ$ $FOO$")
+            &VariableString::from_str("hello $FOO$ $BAZ$ $FOO$")
+                .unwrap()
                 .new_string
                 .unwrap(),
             "hello bar qux bar"
@@ -606,9 +665,9 @@ mod util_test {
         std::env::set_var("FOO", "bar");
         std::env::set_var("BAZ", "qux");
 
-        let r = StringWithVariables::from_str("hello $FOO$ $MISSING$ $BAZ$");
+        let r = VariableString::from_str("hello $FOO$ $MISSING$ $BAZ$");
 
-        assert_eq!("hello bar $MISSING$ qux", r.new_string.unwrap());
+        assert_eq!("hello bar $MISSING$ qux", r.unwrap().new_string.unwrap());
     }
 
     #[test]
