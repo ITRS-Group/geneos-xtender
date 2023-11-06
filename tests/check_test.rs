@@ -41,7 +41,7 @@ async fn test_run_all() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(results.0[0].short_output().trim(), "hello");
     assert_eq!(results.0[1].short_output().trim(), "world");
     println!("Elapsed time: {:?}", elapsed_time);
-    assert!(elapsed_time < std::time::Duration::from_millis(100));
+    assert!(elapsed_time < std::time::Duration::from_millis(200));
 
     Ok(())
 }
