@@ -156,6 +156,16 @@ network_base_template=$(cat <<EOF
 EOF
 )
 
+encrypted_hostname_network_base_template=$(cat <<EOF
+# name: Network - Base
+# description: Basic network checks
+- name: Connectivity - LAN
+  command: |
+    check_icmp -H $ENCRYPTED_HOSTADDRESS$ -w 100.0,20% -c 500.0,60%
+
+EOF
+)
+
 @test "invoking xtender with the option -o on a valid Opspack config.json file" {
     echo "$network_base_json" > "$BATS_TMP"/network-base.json
     run /usr/bin/xtender -o "$BATS_TMP"/network-base.json
@@ -170,14 +180,7 @@ key=26D6EDD53A0AFA8FA1AA3FBCD2FFF2A0BF4809A4E04511F629FC732C2A42A8FC
 iv =472A3557ADDD2525AD4E555738636A67
 EOF
 
-    cat <<EOF > "$BATS_TMP"/network-base.yaml
-# name: Network - Base
-# description: Basic network checks
-- name: Connectivity - LAN
-    command: |
-    check_icmp -H $ENCRYPTED_HOSTADDRESS$ -w 100.0,20% -c 500.0,60%
-EOF
-
+    echo "$encrypted_hostname_network_base_template" > "$BATS_TMP"/network-base.yaml
 
     export ENCRYPTED_HOSTADDRESS="+encs+346BA94B6E0008C76A2B368E4D894CF6"
 
