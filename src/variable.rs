@@ -51,7 +51,7 @@ pub enum VariableError {
     RegexError,
     ParseError(Box<dyn Error>),
     EnvVarError(VariableName),
-    DecryptionError(openssl::error::Error),
+    DecryptionError(openssl::error::ErrorStack),
     NoKeyFileError(VariableName),
 }
 
@@ -63,9 +63,9 @@ impl From<regex::Error> for VariableError {
     }
 }
 
-impl From<openssl::error::Error> for VariableError {
-    fn from(_: openssl::error::Error) -> Self {
-        VariableError::DecryptionError(openssl::error::Error::get().unwrap())
+impl From<openssl::error::ErrorStack> for VariableError {
+    fn from(_: openssl::error::ErrorStack) -> Self {
+        VariableError::DecryptionError(openssl::error::ErrorStack::get())
     }
 }
 
@@ -349,7 +349,7 @@ fn potentially_encrypted(s: &str) -> bool {
     maybe_hex.chars().all(|c| c.is_ascii_hexdigit())
 }
 
-fn decrypt_str(s: &str, k: &KeyFile) -> Result<String, openssl::error::Error> {
+fn decrypt_str(s: &str, k: &KeyFile) -> Result<String, openssl::error::ErrorStack> {
     let encrypted_data = decode(&s[6..]).unwrap();
 
     let cipher = Cipher::aes_256_cbc();
