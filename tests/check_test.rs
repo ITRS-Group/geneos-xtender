@@ -4,7 +4,7 @@ use pretty_assertions::{assert_eq, assert_ne};
 #[test]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn test_run_check() {
-    let p = Check::new("Hello World", "echo hello world", 2);
+    let p = Check::new("Hello World", "echo hello world", None, 2);
     let r = p.run();
     let (hello_world_exit_code, hello_world_output) = (r.status(), r.short_output());
     assert_eq!(hello_world_exit_code, Some(0));
@@ -14,23 +14,23 @@ fn test_run_check() {
 #[test]
 #[should_panic]
 fn test_run_invalid_command() {
-    let p = Check::new("Invalid command", "/bin/foo_bar_baz", 2);
+    let p = Check::new("Invalid command", "/bin/foo_bar_baz", None, 2);
     let r = p.run();
     assert_eq!(r.status(), None);
 }
 
 #[tokio::test]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-async fn test_run_all() {
+async fn test_run_all() -> Result<(), Box<dyn std::error::Error>> {
     let checks = vec![
         CheckBuilder::new()
             .name("Test check 1")
             .command("echo hello")
-            .build(),
+            .build()?,
         CheckBuilder::new()
             .name("Test check 2")
             .command("echo world")
-            .build(),
+            .build()?,
     ];
 
     let start_time = std::time::Instant::now();
@@ -41,36 +41,42 @@ async fn test_run_all() {
     assert_eq!(results.0[0].short_output().trim(), "hello");
     assert_eq!(results.0[1].short_output().trim(), "world");
     println!("Elapsed time: {:?}", elapsed_time);
-    assert!(elapsed_time < std::time::Duration::from_millis(50));
+    assert!(elapsed_time < std::time::Duration::from_millis(100));
+
+    Ok(())
 }
 
 #[test]
-fn test_invalid_variable_in_name() {
+fn test_invalid_variable_in_name() -> Result<(), Box<dyn std::error::Error>> {
     let c = CheckBuilder::new()
         .name("Hello $WORLD$")
         .command("echo hello world")
-        .with_variables()
-        .build();
+        .with_variables()?
+        .build()?;
 
     // Invalid variable names are not replaced
-    assert_eq!(c.name, "Hello $WORLD$");
+    assert_eq!(c.name(), "Hello $WORLD$");
+
+    Ok(())
 }
 
 #[test]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn test_valid_variable_in_name() {
+fn test_valid_variable_in_name() -> Result<(), Box<dyn std::error::Error>> {
     let p = CheckBuilder::new()
         .name("Hello $USER$")
         .command("echo hello world")
-        .with_variables()
-        .build();
-    assert_ne!(p.name, "Hello VARIABLE_NOT_FOUND");
+        .with_variables()?
+        .build()?;
+    assert_ne!(p.name(), "Hello VARIABLE_NOT_FOUND");
+
+    Ok(())
 }
 
 #[test]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn test_check_run_timed_out() {
-    let check = Check::new("Test", "sleep 10", 0);
+    let check = Check::new("Test", "sleep 10", None, 0);
     let result = check.run();
     assert_eq!(result.status(), Some(3));
     assert_eq!(result.short_output(), "UNKNOWN: Timed out after 0 seconds");

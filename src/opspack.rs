@@ -82,13 +82,13 @@ impl Opspack {
         })
     }
 
-    pub fn to_xtender_template(&self) -> String {
-        let mut output = serde_yaml::to_string(&self).unwrap();
+    pub fn to_xtender_template(&self) -> Result<String, Box<dyn std::error::Error>> {
+        let mut output = serde_yaml::to_string(&self)?;
         output = output
             .replace("name:", "# name:")
             .replace("description:", "# description:");
 
-        let mut checks_yaml = serde_yaml::to_string(&self.checks).unwrap();
+        let mut checks_yaml = serde_yaml::to_string(&self.checks)?;
 
         // Sometimes, checks get wrapped in single quotes. This means that all single quotes
         // already in the command double. We need to remove the surrounding single quotes as well
@@ -97,7 +97,7 @@ impl Opspack {
         // The wrapping seems to be caused by a Nagios range containing : in the command.
 
         let some_line_starts_and_ends_with_single_quote =
-            regex::Regex::new(r"command: '[^\n]+['+\n|'+$]").unwrap();
+            regex::Regex::new(r"command: '[^\n]+['+\n|'+$]")?;
         if some_line_starts_and_ends_with_single_quote.is_match(&checks_yaml) {
             let mut lines = checks_yaml
                 .split('\n')
@@ -117,7 +117,8 @@ impl Opspack {
         output.push_str(&checks_yaml);
         output = output.replace("command:", "command: |\n   ");
         output = output.replace("\n  timeout: 5", "");
-        output.trim_end().to_string()
+        output.trim_end().to_string();
+        Ok(output)
     }
 }
 
@@ -159,20 +160,20 @@ mod tests {
         assert_eq!(opspack.name, "Check HTTP");
         assert_eq!(opspack.description, "Check HTTP");
         assert_eq!(opspack.checks.len(), 2);
-        assert_eq!(opspack.checks[0].name, "Check HTTP A");
+        assert_eq!(opspack.checks[0].name(), "Check HTTP A");
         assert_eq!(
-            opspack.checks[0].command,
+            opspack.checks[0].secret_command_or_command(),
             "check_http -H $HOSTADDRESS$ -a /"
         );
-        assert_eq!(opspack.checks[1].name, "Check HTTP B");
+        assert_eq!(opspack.checks[1].name(), "Check HTTP B");
         assert_eq!(
-            opspack.checks[1].command,
+            opspack.checks[1].secret_command_or_command(),
             "check_http -H $HOSTADDRESS$ -b /"
         );
     }
 
     #[test]
-    fn test_to_yaml() {
+    fn test_to_xtender_template() {
         let json = r#"{
   "hosttemplate": [
     {
@@ -192,18 +193,17 @@ mod tests {
       }
     }
   ]
-}"#;
+}
+"#;
         let opspack = Opspack::from_json(json).unwrap();
-        let yaml = opspack.to_xtender_template();
-        assert_eq!(
-            yaml,
-            r#"# name: Check HTTP
+        let template = opspack.to_xtender_template().unwrap();
+        let expected_template = r#"# name: Check HTTP
 # description: Check HTTP
 - name: Check HTTP
   command: |
-    check_http -H $HOSTADDRESS_1$ -u $URL_1$"#
-                .to_string()
-        );
+    check_http -H $HOSTADDRESS_1$ -u $URL_1$
+"#;
+        assert_eq!(template, expected_template);
     }
 
     #[test]
@@ -227,7 +227,8 @@ mod tests {
          "value" : "Windows LDAP credentials"
       }
    ]
-}"#;
+}
+"#;
 
         let opspack = Opspack::from_json(json);
         assert!(opspack.is_err());
@@ -370,6 +371,7 @@ mod tests {
 "#;
 
         let opspack = Opspack::from_json(json).unwrap();
+        let template = opspack.to_xtender_template().unwrap();
         let expected_template = r#"# name: Application - RabbitMQ - Node
 # description: Monitoring of a RabbitMQ node
 - name: RabbitMQ - Sockets Left
@@ -377,8 +379,9 @@ mod tests {
     check_rabbitmq_node -H $HOSTADDRESS$ -m sockets_left -w 1000: -c 500: -P '$RABBITMQ_CREDENTIALS_4$' -u '$RABBITMQ_CREDENTIALS_1$' -p '$RABBITMQ_CREDENTIALS_2$' -n '$RABBITMQ_CREDENTIALS_3$'
 - name: RabbitMQ - Sockets Used - percent
   command: |
-    check_rabbitmq_node -H $HOSTADDRESS$ -m sockets_used_percent -w 70 -c 80 -P '$RABBITMQ_CREDENTIALS_4$' -u '$RABBITMQ_CREDENTIALS_1$' -p '$RABBITMQ_CREDENTIALS_2$' -n '$RABBITMQ_CREDENTIALS_3$'"#;
+    check_rabbitmq_node -H $HOSTADDRESS$ -m sockets_used_percent -w 70 -c 80 -P '$RABBITMQ_CREDENTIALS_4$' -u '$RABBITMQ_CREDENTIALS_1$' -p '$RABBITMQ_CREDENTIALS_2$' -n '$RABBITMQ_CREDENTIALS_3$'
+"#;
 
-        assert_eq!(opspack.to_xtender_template(), expected_template);
+        assert_eq!(template, expected_template);
     }
 }

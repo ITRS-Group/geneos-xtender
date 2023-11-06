@@ -4,10 +4,12 @@ use geneos_xtender::check::{
 };
 use geneos_xtender::opspack::Opspack;
 use geneos_xtender::result::ProcessedCheckResultsExt;
-use log::debug;
+use geneos_xtender::variable::{KeyFile, KEY_FILE};
+use log::{debug, error};
 use serde_yaml::Value;
 use std::fs;
 use std::path::Path;
+use std::str::FromStr;
 
 const ABOUT_XTENDER: &str = r#"
 Geneos Xtender:
@@ -15,6 +17,12 @@ Geneos Xtender:
 Run one or more Nagios compatible plugin checks in parallel
 and return the results in a format compatible with the Geneos
 Toolkit Plugin.
+
+To decrypt encrypted environment variables, a key file must be
+provided. The key file can be provided either by using the
+--key-file option, or by placing a file named "secret.key" in
+the /opt/xtender/ directory. The key file must be readable by
+the user running the xtender binary.
 
 All arguments following -- will be names of, or paths to Xtender
 Templates. For templates in the /opt/xtender/templates/ directory,
@@ -62,6 +70,10 @@ struct Args {
     /// Convert an Opspack JSON file to an Xtender Template and print the result to stdout
     #[arg(short, long, exclusive = true)]
     opspack: Option<String>,
+
+    /// Key File for decrypting encrypted environment variables
+    #[arg(short, long)]
+    key_file: Option<String>,
 
     /// Run checks sequentially instead of in parallel
     #[arg(short, long)]
@@ -115,13 +127,74 @@ async fn main() {
         .init()
         .unwrap();
 
+    if let Some(key_file_path) = parsed_args.key_file {
+        let key_file_string = fs::read_to_string(&key_file_path).unwrap_or_else(|_| {
+            error!("Failed to read key file: {}", key_file_path);
+            std::process::exit(1)
+        });
+        let result = KeyFile::from_str(&key_file_string);
+
+        match result {
+            Ok(kf) => {
+                debug!("Loaded key file from the provided path: {}", key_file_path);
+                // Open the global KEY_FILE for writing just this once.
+                let mut key = KEY_FILE.write().unwrap();
+                *key = Some(kf);
+            }
+            Err(e) => {
+                error!("Failed to parse key file {}: {}", key_file_path, e);
+                std::process::exit(1)
+            }
+        }
+    } else if let Ok(default_key_file) = fs::read_to_string("/opt/xtender/secret.key") {
+        let result = KeyFile::from_str(&default_key_file);
+
+        match result {
+            Ok(kf) => {
+                debug!("Loaded default key file from /opt/xtender/secret.key");
+                // Open the global KEY_FILE for writing just this once.
+                let mut key = KEY_FILE.write().unwrap();
+                *key = Some(kf);
+            }
+            Err(e) => {
+                error!(
+                    "Failed to parse default key file /opt/xtender/secret.key: {}",
+                    e
+                );
+                std::process::exit(1)
+            }
+        }
+    } else {
+        debug!("--key-file option not used, and no default key file found. No decryption will be possible.");
+    }
+
     if let Some(opspack_file) = parsed_args.opspack {
-        let opspack_json = fs::read_to_string(&opspack_file)
-            .unwrap_or_else(|_| panic!("Failed to read file: {}", opspack_file));
-        let o = Opspack::from_json(&opspack_json);
-        let t = o.unwrap_or_else(|e| panic!("{}", e)).to_xtender_template();
-        print!("{}", t);
-        std::process::exit(0);
+        let opspack_json = match fs::read_to_string(opspack_file) {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Failed to read file: {}", e);
+                std::process::exit(1)
+            }
+        };
+
+        let opspack = match Opspack::from_json(&opspack_json) {
+            Ok(o) => o,
+            Err(e) => {
+                error!("Failed to parse Opspack from json: {}", e);
+                std::process::exit(1)
+            }
+        };
+
+        match opspack.to_xtender_template() {
+            Ok(t) => {
+                print!("{}", t);
+                std::process::exit(0)
+            }
+            Err(e) => {
+                error!("Failed to generate Xtender Template: {}", e);
+                std::process::exit(1)
+            }
+        }
     }
 
     let mut checks = Checks::new();
@@ -154,7 +227,13 @@ async fn main() {
                     )
                     .build();
 
-                let range_checks = c.expand_ranges();
+                let range_checks = match c {
+                    Ok(c) => c.expand_ranges(),
+                    Err(e) => {
+                        error!("Unable to build check: {}", e);
+                        std::process::exit(1)
+                    }
+                };
 
                 for rc in range_checks {
                     checks.push(rc);
@@ -162,8 +241,6 @@ async fn main() {
             }
         }
     }
-
-    debug!("Finished parsing checks: {:#?}", checks);
 
     let results = if parsed_args.sequential {
         debug!("Running checks sequentially");

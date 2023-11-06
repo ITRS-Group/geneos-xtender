@@ -162,3 +162,27 @@ EOF
     assert_success
     assert_output "$network_base_template"
 }
+
+@test "invoking xtender with the option -k while using encrypted variables" {
+    cat <<EOF > "$BATS_TMP"/secret.key
+salt=89A6A795C9CCECB5
+key=26D6EDD53A0AFA8FA1AA3FBCD2FFF2A0BF4809A4E04511F629FC732C2A42A8FC
+iv =472A3557ADDD2525AD4E555738636A67
+EOF
+
+    cat <<EOF > "$BATS_TMP"/network-base.yaml
+# name: Network - Base
+# description: Basic network checks
+- name: Connectivity - LAN
+    command: |
+    check_icmp -H $ENCRYPTED_HOSTADDRESS$ -w 100.0,20% -c 500.0,60%
+EOF
+
+
+    export ENCRYPTED_HOSTADDRESS="+encs+346BA94B6E0008C76A2B368E4D894CF6"
+
+    run /usr/bin/xtender -k "$BATS_TMP"/secret.key -o "$BATS_TMP"/network-base.yaml
+    assert_success
+    assert_output "$network_base_template"
+    assert_output_matches "127.0.0.1"
+}

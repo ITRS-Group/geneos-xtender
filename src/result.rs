@@ -8,6 +8,7 @@ use std::str::FromStr;
 pub struct CheckResult {
     name: String,
     command: String,
+    secret_command: String,
     status: Option<i32>,
     short_output: String,
     long_output: String,
@@ -17,10 +18,11 @@ pub struct CheckResult {
     variables_not_found: Option<Variables>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct CheckResultBuilder {
     name: Option<String>,
     command: Option<String>,
+    secret_command: Option<String>,
     status: Option<i32>,
     short_output: Option<String>,
     long_output: Option<String>,
@@ -119,6 +121,11 @@ impl CheckResultBuilder {
         self
     }
 
+    pub fn secret_command(mut self, secret_command: &str) -> Self {
+        self.secret_command = Some(secret_command.to_string());
+        self
+    }
+
     pub fn status(mut self, status: i32) -> Self {
         self.status = Some(status);
         self
@@ -164,7 +171,11 @@ impl CheckResultBuilder {
     pub fn build(self) -> CheckResult {
         CheckResult {
             name: escape_chars(&self.name.unwrap_or_default()),
-            command: escape_chars(&self.command.unwrap_or_default()),
+            command: escape_chars(&self.command.clone().unwrap_or_default()),
+            secret_command: match &self.secret_command {
+                Some(s) => escape_chars(s),
+                None => self.command.unwrap_or_default(),
+            },
             status: self.status,
             short_output: escape_chars(&self.short_output.unwrap_or_default()),
             long_output: escape_chars(&self.long_output.unwrap_or_default()),
