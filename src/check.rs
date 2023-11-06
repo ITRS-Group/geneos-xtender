@@ -36,7 +36,7 @@ pub trait ChecksExt {
     fn total_time_from_timeouts(&self) -> Duration;
 }
 
-pub enum TimeoutMessage {
+enum TimeoutMessage {
     Single,
     Multi(u64),
 }
