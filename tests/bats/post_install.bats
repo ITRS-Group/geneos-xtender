@@ -176,7 +176,7 @@ EOF
 # description: Echo a variable that is encrypted
 - name: Echo - Encrypted
   command: |
-    echo "\$ENCRYPTED_VARIABLE\$"
+    echo $ENCRYPTED_VARIABLE$
 EOF
 
     export ENCRYPTED_VARIABLE="+encs+346BA94B6E0008C76A2B368E4D894CF6"
