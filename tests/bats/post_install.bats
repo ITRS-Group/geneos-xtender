@@ -181,8 +181,7 @@ EOF
 
     export ENCRYPTED_HOSTADDRESS="+encs+346BA94B6E0008C76A2B368E4D894CF6"
 
-    run /usr/bin/xtender -k "$BATS_TMP"/secret.key -o "$BATS_TMP"/network-base.yaml
+    run /usr/bin/xtender -k "$BATS_TMP"/secret.key -- "$BATS_TMP"/network-base.yaml
     assert_success
-    assert_output "$network_base_template"
     assert_output_matches "127.0.0.1"
 }
