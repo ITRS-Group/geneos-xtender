@@ -73,20 +73,8 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: ${{ matrix.target }}
-          override: true
-
-      - uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: build
-          args: --target ${{ matrix.target }} --release
-
-      - name: Move the created binary to the root
-        run: mv target/${{ matrix.target }}/release/xtender .
+      - name: Build the binary
+        run: make
 
       - name: Archive binary
         uses: actions/upload-artifact@v2

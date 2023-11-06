@@ -1,7 +1,5 @@
-FROM rust:latest AS build
+FROM blackdex/rust-musl:x86_64-musl-stable-1.73.0-openssl3 AS build
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-RUN apt-get update && apt-get install -y musl-tools
-RUN rustup target add x86_64-unknown-linux-musl
 
 COPY src /src
 COPY Cargo.toml /Cargo.toml
