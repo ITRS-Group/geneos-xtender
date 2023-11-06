@@ -10,7 +10,7 @@ teardown() {
     rm -rf "$BATS_TMP"
 }
 
-header_line="name,status,shortOutput,label,value,uom,warn,crit,min,max,command,performanceDataString,longOutput"
+header_line="name,status,shortOutput,label,value,uom,warn,crit,min,max,command,performanceDataString,longOutput,executionTime,variablesFound,variablesNotFound"
 
 assert_first_line_is_header() {
     assert_line_matches 0 "$header_line"
