@@ -163,29 +163,21 @@ EOF
     assert_output "$network_base_template"
 }
 
-encrypted_variable_template=$(cat <<EOF
-# name: Echo - Encrypted
-# description: Echo a variable that is encrypted
-- name: Echo - Encrypted
-  command: |
-    echo $ENCRYPTED_VARIABLE$
-
-EOF
-)
-
-secret_key=$(cat <<EOF
+@test "invoking xtender with the option -k while using encrypted variables" {
+    cat <<'EOF' > "$BATS_TMP"/secret.key
 salt=89A6A795C9CCECB5
 key=26D6EDD53A0AFA8FA1AA3FBCD2FFF2A0BF4809A4E04511F629FC732C2A42A8FC
 iv =472A3557ADDD2525AD4E555738636A67
 
 EOF
-)
 
-
-
-@test "invoking xtender with the option -k while using encrypted variables" {
-    echo "$secret_key" > "$BATS_TMP"/secret.key
-    echo "$encrypted_variable_template" > "$BATS_TMP"/echo_encrypted.yaml
+    cat <<'EOF' > "$BATS_TMP"/echo_encrypted.yaml
+# name: Echo - Encrypted
+# description: Echo a variable that is encrypted
+- name: Echo - Encrypted
+  command: |
+    echo "\$ENCRYPTED_VARIABLE\$"
+EOF
 
     export ENCRYPTED_VARIABLE="+encs+346BA94B6E0008C76A2B368E4D894CF6"
 
