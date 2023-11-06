@@ -66,10 +66,6 @@ struct Args {
     /// Run checks sequentially instead of in parallel
     #[arg(short, long)]
     sequential: bool,
-    // /// Spread checks out over a period (in seconds) corresponding to the sampler interval
-    // /// Implies --sequential
-    // #[arg(short = 'S', long)]
-    // spread: Option<u64>,
 }
 
 struct ParsedTemplates {
