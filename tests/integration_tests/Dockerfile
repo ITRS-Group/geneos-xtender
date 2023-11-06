@@ -20,4 +20,4 @@ curl $BATS_EXT_URL/background-process -o $BATS_DIR/background-process && \
 curl $BATS_EXT_URL/helper-function -o $BATS_DIR/helper-function && \
 curl $BATS_EXT_URL/helpers -o $BATS_DIR/helpers
 
-CMD ["/usr/bin/bats", "--tap", "tests/bats/post_install.bats"]
+CMD ["/usr/bin/bats", "--tap", "-p", "tests/bats/post_install.bats"]
