@@ -176,12 +176,22 @@ EOF
 # description: Echo a variable that is encrypted
 - name: Echo - Encrypted
   command: |
-    echo $ENCRYPTED_VARIABLE$
+    echo encrypted_variable: $ENCRYPTED_VARIABLE$
+EOF
+
+    cat <<'EOF' > "$BATS_TMP"/echo_unencrypted.yaml
+# name: Echo - Unencrypted
+# description: Echo a variable that is unencrypted
+- name: Echo - Unencrypted
+  command: |
+    echo unencrypted_variable: $UNENCRYPTED_VARIABLE$
 EOF
 
     export ENCRYPTED_VARIABLE="+encs+346BA94B6E0008C76A2B368E4D894CF6"
+    export UNENCRYPTED_VARIABLE="this_is_unencrypted"
 
-    run /usr/bin/xtender -k "$BATS_TMP"/secret.key -- "$BATS_TMP"/echo_encrypted.yaml
+    run /usr/bin/xtender -k "$BATS_TMP"/secret.key -- "$BATS_TMP"/echo_encrypted.yaml "$BATS_TMP"/echo_unencrypted.yaml
     assert_success
-    assert_output_matches "127.0.0.1"
+    assert_output_matches "Echo - Encrypted,0,encrypted_variable: 127.0.0.1,,,,,,,,echo encrypted_variable: \*\*\*,,,[0-9]+\.[0-9]+ s,ENCRYPTED_VARIABLE=\*\*\*,"
+    assert_output_matches "Echo - Unencrypted,0,unencrypted_variable: this_is_unencrypted,,,,,,,,echo unencrypted_variable: this_is_unencrypted,,,[0-9]+\.[0-9]+ s,UNENCRYPTED_VARIABLE=\"this_is_unencrypted\""
 }
