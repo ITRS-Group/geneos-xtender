@@ -194,8 +194,10 @@ impl FromStr for VariableString {
                     Variable::Found(name, value, secret_value)
                         if secret_value.as_ref().is_some() =>
                     {
-                        obfuscated_string =
-                            Some(clear_string.clone().replace(&format!("${}$", name), "***"));
+                        obfuscated_string = match obfuscated_string {
+                            None => Some(clear_string.replace(&format!("${}$", name), "***")),
+                            Some(s) => Some(s.replace(&format!("${}$", name), "***")),
+                        };
                         clear_string = clear_string
                             .replace(&format!("${}$", name), &secret_value.clone().unwrap());
                         found_variables.push(VariableKind::Secret(Variable::Found(
