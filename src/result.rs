@@ -93,14 +93,14 @@ impl CheckResult {
 
     pub fn variables_found(&self) -> Option<String> {
         match self.variables_found {
-            Some(ref vars) if !vars.is_empty() => Some(vars.to_string()),
+            Some(ref vars) if !vars.is_empty() => Some(escape_chars(&vars.to_string())),
             _ => None,
         }
     }
 
     pub fn variables_not_found(&self) -> Option<String> {
         match self.variables_not_found {
-            Some(ref vars) if !vars.is_empty() => Some(vars.to_string()),
+            Some(ref vars) if !vars.is_empty() => Some(escape_chars(&vars.to_string())),
             _ => None,
         }
     }

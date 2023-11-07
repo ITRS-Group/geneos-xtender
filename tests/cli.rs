@@ -501,7 +501,7 @@ fn test_display_multi_known_env_vars_single_command() {
         // Even though the variables in the command were listed with "USER" first, the output should
         // be sorted alphabetically.
         .stdout(predicate::str::contains(format!(
-            ",PATH=\"{}\",USER=\"{}\",\n",
+            ",PATH=\"{}\"\\,USER=\"{}\",\n",
             current_path, current_user
         )));
 

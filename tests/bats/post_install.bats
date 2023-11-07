@@ -173,10 +173,10 @@ EOF
 
     cat <<'EOF' > "$BATS_TMP"/echo_encrypted.yaml
 # name: Echo - Encrypted
-# description: Echo a variable that is encrypted
+# description: Echo two variables that are encrypted
 - name: Echo - Encrypted
   command: |
-    echo encrypted_variable: $ENCRYPTED_VARIABLE$
+    echo encrypted_variables: A: $ENCRYPTED_VARIABLE_1$ B: $ENCRYPTED_VARIABLE_2$
 EOF
 
     cat <<'EOF' > "$BATS_TMP"/echo_unencrypted.yaml
@@ -187,11 +187,12 @@ EOF
     echo unencrypted_variable: $UNENCRYPTED_VARIABLE$
 EOF
 
-    export ENCRYPTED_VARIABLE="+encs+346BA94B6E0008C76A2B368E4D894CF6"
+    export ENCRYPTED_VARIABLE_1="+encs+346BA94B6E0008C76A2B368E4D894CF6"
+    export ENCRYPTED_VARIABLE_2="+encs+346BA94B6E0008C76A2B368E4D894CF6"
     export UNENCRYPTED_VARIABLE="this_is_unencrypted"
 
     run /usr/bin/xtender -k "$BATS_TMP"/secret.key -- "$BATS_TMP"/echo_encrypted.yaml "$BATS_TMP"/echo_unencrypted.yaml
     assert_success
-    assert_output_matches "Echo - Encrypted,0,encrypted_variable: 127.0.0.1,,,,,,,,echo encrypted_variable: \*\*\*,,,[0-9]+\.[0-9]+ s,ENCRYPTED_VARIABLE=\*\*\*,"
-    assert_output_matches "Echo - Unencrypted,0,unencrypted_variable: this_is_unencrypted,,,,,,,,echo unencrypted_variable: this_is_unencrypted,,,[0-9]+\.[0-9]+ s,UNENCRYPTED_VARIABLE=\"this_is_unencrypted\""
+    assert_output_matches "Echo - Encrypted,0,encrypted_variables: A: 127.0.0.1 B: 127.0.0.1,,,,,,,,echo encrypted_variables: A: \*\*\* B: \*\*\*,,,[0-9]+\.[0-9]+ s,ENCRYPTED_VARIABLE_1=\*\*\*\\\\,ENCRYPTED_VARIABLE_2=\*\*\*,"
+    assert_output_matches "Echo - Unencrypted,0,unencrypted_variable: this_is_unencrypted,,,,,,,,echo unencrypted_variable: this_is_unencrypted,,,[0-9]+\.[0-9]+ s,UNENCRYPTED_VARIABLE=\"this_is_unencrypted\","
 }
