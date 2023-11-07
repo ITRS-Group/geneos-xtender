@@ -1,0 +1,68 @@
+name: "On-demand test suite"
+
+permissions:
+  contents: "write"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  security_audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: EmbarkStudios/cargo-deny-action@v1
+
+  cargo_test:
+    name: Cargo Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Run cargo test
+        run: cargo test
+      - name: Run cargo fmt
+        run: cargo fmt --check
+      - name: Run cargo clippy
+        run: cargo clippy -- -D warnings
+
+  build_and_test:
+    name: Build binary, package the deb, and run tests
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: "x86_64-unknown-linux-musl"
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Get the version number using awk
+        id: awk
+        run: echo "version=$(awk -F\" '/^version/ {print $2}' Cargo.toml)" >> "$GITHUB_OUTPUT"
+
+      - name: Build the binary
+        run: make
+
+      - name: Build DEB Package
+        id: build_deb
+        uses: kentik/pkg@v1.0.0-rc7
+        with:
+          name: geneos-xtender
+          version: ${{ steps.awk.outputs.version }}
+          arch: x86_64
+          format: deb
+          package: package_deb.yaml
+
+      - name: ubuntu_focal - Build bats image
+        run: |
+          docker build --platform linux/amd64 -t bats_tests_ubuntu_focal -f tests/integration_tests/Dockerfile --build-arg IMAGE=ubuntu:focal .
+
+      - name: ubuntu_focal - Run bats image
+        run: docker run bats_tests_ubuntu_focal
