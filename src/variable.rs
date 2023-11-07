@@ -1,5 +1,6 @@
 use hex::decode;
 use lazy_static::lazy_static;
+use log::debug;
 use openssl::symm::{Cipher, Crypter, Mode};
 use serde::Serialize;
 use std::error::Error;
@@ -285,7 +286,7 @@ impl fmt::Display for KeyFileParseError {
             KeyFileParseError::FileTooLong(length) => {
                 write!(
                     f,
-                    "Key file too long, expected 3 lines, {} lines found",
+                    "Key file too long, expected 2-3 lines, {} lines found",
                     length
                 )
             }
@@ -320,7 +321,8 @@ impl FromStr for KeyFile {
         }
 
         if salt.is_none() {
-            return Err(KeyFileParseError::MissingSalt);
+            //return Err(KeyFileParseError::MissingSalt);
+            debug!("The key file is missing the salt, this is not a problem.")
         }
 
         if key.is_none() {
@@ -332,7 +334,7 @@ impl FromStr for KeyFile {
         }
 
         Ok(Self {
-            _salt: salt.unwrap(),
+            _salt: salt.unwrap_or_default(),
             key: key.unwrap(),
             iv: iv.unwrap(),
         })
@@ -482,7 +484,8 @@ iv =472A3557ADDD2525AD4E555738636A67
 
         let result = KeyFile::from_str(short_string);
 
-        assert!(result.is_err());
+        // We don't care about a missing salt for now.
+        assert!(result.is_ok());
     }
 
     #[test]
