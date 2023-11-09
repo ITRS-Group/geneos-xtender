@@ -550,14 +550,14 @@ foo=AAA123
     const ORIGINAL_TEXT_2: &str = r"Lorem Ipsum";
     const ORIGINAL_TEXT_3: &str = r"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
 
-    const KEY_FILE: &str = r#"salt=89A6A795C9CCECB5
+    const TEST_KEY_FILE: &str = r#"salt=89A6A795C9CCECB5
 key=26D6EDD53A0AFA8FA1AA3FBCD2FFF2A0BF4809A4E04511F629FC732C2A42A8FC
 iv =472A3557ADDD2525AD4E555738636A67
 "#;
 
     #[test]
     fn test_decrypt_str() {
-        let kf = KeyFile::from_str(KEY_FILE).unwrap();
+        let kf = KeyFile::from_str(TEST_KEY_FILE).unwrap();
 
         let result_1 = decrypt_str(ENCRYPTED_TEXT_1, &kf);
         assert_eq!(result_1.unwrap(), ORIGINAL_TEXT_1.to_string());
