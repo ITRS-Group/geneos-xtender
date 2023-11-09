@@ -174,15 +174,31 @@ EOF
     cat <<'EOF' > "$BATS_TMP"/echo_encrypted.yaml
 # name: Echo - Encrypted
 # description: Echo two variables that are encrypted
-- name: Echo - Encrypted
+- name: Echo Encrypted
   command: |
     echo encrypted_variables: A: $ENCRYPTED_VARIABLE_1$ B: $ENCRYPTED_VARIABLE_2$
+EOF
+
+    cat <<'EOF' > "$BATS_TMP"/echo_mixed_1.yaml
+# name: Echo - Mixed 1
+# description: Echo two variables, one encrypted and one unencrypted
+- name: Echo Mixed 1
+  command: |
+    echo mixed_variables: A: $ENCRYPTED_VARIABLE_1$ B: $UNENCRYPTED_VARIABLE$
+EOF
+
+    cat <<'EOF' > "$BATS_TMP"/echo_mixed_2.yaml
+# name: Echo - Mixed 2
+# description: Echo two variables, one unencrypted and one encrypted
+- name: Echo Mixed 2
+  command: |
+    echo mixed_variables: A: $UNENCRYPTED_VARIABLE$ B: $ENCRYPTED_VARIABLE_1$
 EOF
 
     cat <<'EOF' > "$BATS_TMP"/echo_unencrypted.yaml
 # name: Echo - Unencrypted
 # description: Echo a variable that is unencrypted
-- name: Echo - Unencrypted
+- name: Echo Unencrypted
   command: |
     echo unencrypted_variable: $UNENCRYPTED_VARIABLE$
 EOF
@@ -191,8 +207,10 @@ EOF
     export ENCRYPTED_VARIABLE_2="+encs+346BA94B6E0008C76A2B368E4D894CF6"
     export UNENCRYPTED_VARIABLE="this_is_unencrypted"
 
-    run /usr/bin/xtender -k "$BATS_TMP"/secret.key -- "$BATS_TMP"/echo_encrypted.yaml "$BATS_TMP"/echo_unencrypted.yaml
+    run /usr/bin/xtender -k "$BATS_TMP"/secret.key -- "$BATS_TMP"/echo_encrypted.yaml "$BATS_TMP"/echo_unencrypted.yaml "$BATS_TMP"/echo_mixed_1.yaml "$BATS_TMP"/echo_mixed_2.yaml
     assert_success
-    assert_output_matches "Echo - Encrypted,0,encrypted_variables: A: 127.0.0.1 B: 127.0.0.1,,,,,,,,echo encrypted_variables: A: \*\*\* B: \*\*\*,,,[0-9]+\.[0-9]+ s,ENCRYPTED_VARIABLE_1=\*\*\*\\\\,ENCRYPTED_VARIABLE_2=\*\*\*,"
-    assert_output_matches "Echo - Unencrypted,0,unencrypted_variable: this_is_unencrypted,,,,,,,,echo unencrypted_variable: this_is_unencrypted,,,[0-9]+\.[0-9]+ s,UNENCRYPTED_VARIABLE=\"this_is_unencrypted\","
+    assert_output_matches "Echo Encrypted,0,encrypted_variables: A: 127.0.0.1 B: 127.0.0.1,,,,,,,,echo encrypted_variables: A: \*\*\* B: \*\*\*,,,[0-9]+\.[0-9]+ s,ENCRYPTED_VARIABLE_1=\*\*\*\\\\,ENCRYPTED_VARIABLE_2=\*\*\*,"
+    assert_output_matches "Echo Unencrypted,0,unencrypted_variable: this_is_unencrypted,,,,,,,,echo unencrypted_variable: this_is_unencrypted,,,[0-9]+\.[0-9]+ s,UNENCRYPTED_VARIABLE=\"this_is_unencrypted\","
+    assert_output_matches "Echo Mixed 1,0,mixed_variables: A: 127.0.0.1 B: this_is_unencrypted,,,,,,,,echo mixed_variables: A: \*\*\* B: this_is_unencrypted,,,[0-9]+\.[0-9]+ s,ENCRYPTED_VARIABLE_1=\*\*\*\\\\,UNENCRYPTED_VARIABLE=\"this_is_unencrypted\","
+    assert_output_matches "Echo Mixed 2,0,mixed_variables: A: this_is_unencrypted B: 127.0.0.1,,,,,,,,echo mixed_variables: A: this_is_unencrypted B: \*\*\*,,,[0-9]+\.[0-9]+ s,ENCRYPTED_VARIABLE_1=\*\*\*\\\\,UNENCRYPTED_VARIABLE=\"this_is_unencrypted\","
 }

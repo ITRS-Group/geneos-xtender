@@ -25,7 +25,7 @@ pub trait VariablesExt {
 
 impl VariablesExt for Variables {
     fn to_string(&self) -> String {
-        let strings = self
+        let mut strings = self
             .iter()
             .map(|v| match v {
                 VariableKind::Public(v) => v.to_public_string(),
@@ -37,6 +37,7 @@ impl VariablesExt for Variables {
             return String::new();
         }
 
+        strings.sort();
         strings.join(",")
     }
 }
@@ -182,8 +183,8 @@ impl FromStr for VariableString {
             .filter_map(|c| c.get(1).map(|m| m.as_str().to_string()))
             .collect::<Vec<VariableName>>();
 
-        let mut clear_string: VariableName = s.to_string();
-        let mut obfuscated_string: VariableValue = None;
+        let mut clear_string: String = s.to_string();
+        let mut obfuscated_string: Option<String> = None;
         let mut found_variables = Variables::new();
         let mut missing_variables = Variables::new();
 
@@ -207,6 +208,17 @@ impl FromStr for VariableString {
                         )));
                     }
                     Variable::Found(name, value, secret_value) => {
+                        // Since the variable is not secret, replace the clear value even in the
+                        // obfuscated string.
+                        obfuscated_string = match obfuscated_string {
+                            None => Some(
+                                clear_string
+                                    .replace(&format!("${}$", name), value.as_ref().unwrap()),
+                            ),
+                            Some(s) => {
+                                Some(s.replace(&format!("${}$", name), value.as_ref().unwrap()))
+                            }
+                        };
                         clear_string =
                             clear_string.replace(&format!("${}$", name), value.as_ref().unwrap());
                         found_variables.push(VariableKind::Public(Variable::Found(
@@ -567,5 +579,140 @@ iv =472A3557ADDD2525AD4E555738636A67
 
         let result_3 = decrypt_str(ENCRYPTED_TEXT_3, &kf);
         assert_eq!(result_3.unwrap(), ORIGINAL_TEXT_3.to_string());
+    }
+
+    #[test]
+    fn test_mixed_variables_from_str() {
+        let kf = KeyFile::from_str(TEST_KEY_FILE);
+
+        match kf {
+            Ok(kf) => {
+                let mut key = KEY_FILE.write().unwrap();
+                *key = Some(kf);
+            }
+            _ => panic!("Failed to parse key file"),
+        }
+
+        std::env::set_var("UNENCRYPTED_VAR", "bar");
+        std::env::set_var("ENCRYPTED_VAR_1", r"+encs+BCC9E963342C9CFEFB45093F3437A680");
+        std::env::set_var("ENCRYPTED_VAR_2", r"+encs+E245F3CCC5101CCEF28537908A427B13");
+
+        assert_eq!(
+            &VariableString::from_str(
+                "hello $UNENCRYPTED_VAR$ $ENCRYPTED_VAR_1$ $ENCRYPTED_VAR_2$"
+            )
+            .unwrap()
+            .clear_string
+            .unwrap(),
+            "hello bar 12345 Lorem Ipsum"
+        );
+
+        assert_eq!(
+            &VariableString::from_str(
+                "hello $ENCRYPTED_VAR_1$ $UNENCRYPTED_VAR$ $ENCRYPTED_VAR_2$"
+            )
+            .unwrap()
+            .clear_string
+            .unwrap(),
+            "hello 12345 bar Lorem Ipsum"
+        );
+
+        assert_eq!(
+            &VariableString::from_str(
+                "hello $ENCRYPTED_VAR_1$ $ENCRYPTED_VAR_2$ $UNENCRYPTED_VAR$"
+            )
+            .unwrap()
+            .clear_string
+            .unwrap(),
+            "hello 12345 Lorem Ipsum bar"
+        );
+
+        assert_eq!(
+            &VariableString::from_str(
+                "hello $UNENCRYPTED_VAR$ $ENCRYPTED_VAR_1$ $ENCRYPTED_VAR_2$"
+            )
+            .unwrap()
+            .obfuscated_string
+            .unwrap(),
+            "hello bar *** ***"
+        );
+
+        assert_eq!(
+            &VariableString::from_str(
+                "hello $ENCRYPTED_VAR_1$ $UNENCRYPTED_VAR$ $ENCRYPTED_VAR_2$"
+            )
+            .unwrap()
+            .obfuscated_string
+            .unwrap(),
+            "hello *** bar ***"
+        );
+
+        assert_eq!(
+            &VariableString::from_str(
+                "hello $ENCRYPTED_VAR_1$ $ENCRYPTED_VAR_2$ $UNENCRYPTED_VAR$"
+            )
+            .unwrap()
+            .obfuscated_string
+            .unwrap(),
+            "hello *** *** bar"
+        );
+    }
+
+    #[test]
+    fn test_mixed_variables_to_string() {
+        let kf = KeyFile::from_str(TEST_KEY_FILE);
+
+        match kf {
+            Ok(kf) => {
+                let mut key = KEY_FILE.write().unwrap();
+                *key = Some(kf);
+            }
+            _ => panic!("Failed to parse key file"),
+        }
+
+        std::env::set_var("UNENCRYPTED_VAR", "bar");
+        std::env::set_var("ENCRYPTED_VAR_1", r"+encs+BCC9E963342C9CFEFB45093F3437A680");
+        std::env::set_var("ENCRYPTED_VAR_2", r"+encs+E245F3CCC5101CCEF28537908A427B13");
+
+        let mut mixed_variables = vec![
+            VariableKind::Public(Variable::Found(
+                "UNENCRYPTED_VAR".to_string(),
+                Some("bar".to_string()),
+                None,
+            )),
+            VariableKind::Secret(Variable::Found(
+                "ENCRYPTED_VAR_1".to_string(),
+                Some(r"+encs+BCC9E963342C9CFEFB45093F3437A680".to_string()),
+                Some("12345".to_string()),
+            )),
+            VariableKind::Secret(Variable::Found(
+                "ENCRYPTED_VAR_2".to_string(),
+                Some(r"+encs+E245F3CCC5101CCEF28537908A427B13".to_string()),
+                Some("Lorem Ipsum".to_string()),
+            )),
+        ];
+
+        // The string should still be sorted by the name of the variable.
+        assert_eq!(
+            &mixed_variables.to_string(),
+            "ENCRYPTED_VAR_1=***,ENCRYPTED_VAR_2=***,UNENCRYPTED_VAR=\"bar\""
+        );
+
+        // Now let's mix up the order of the mixed variables.
+        // They should still appear sorted by the name of the variable.
+        mixed_variables.reverse();
+
+        assert_eq!(
+            &mixed_variables.to_string(),
+            "ENCRYPTED_VAR_1=***,ENCRYPTED_VAR_2=***,UNENCRYPTED_VAR=\"bar\""
+        );
+
+        let first = mixed_variables.remove(0);
+        mixed_variables.push(first);
+
+        assert_eq!(
+            &mixed_variables.to_string(),
+            "ENCRYPTED_VAR_1=***,ENCRYPTED_VAR_2=***,UNENCRYPTED_VAR=\"bar\""
+        );
     }
 }
