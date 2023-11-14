@@ -1,13 +1,40 @@
-ARG IMAGE=ubuntu/ubuntu:focal
+ARG IMAGE="ubuntu:focal"
 FROM $IMAGE
 
-RUN apt-get update && \
+ARG IMAGE
+ENV IMAGE=$IMAGE
+
+# If IMAGE=ubuntu:focal, then use apt-get to install bats and curl.
+# If IMAGE=oraclelinux:8, then use yum to install bats and curl.
+RUN if [ "$IMAGE" = "ubuntu:focal" ]; then \
+    apt-get update && \
     apt-get install -y \
     bats \
-    curl
+    curl; \
+    elif [ "$IMAGE" = "oraclelinux:8" ]; then \
+    dnf install -y oracle-epel-release-el8 && \
+    dnf config-manager --enable ol8_developer_EPEL && \
+    dnf install -y \
+    bats \
+    curl; \
+    fi
 
+# If IMAGE=ubuntu:focal, then use apt-get to install the geneos-xtender deb
+# package. If IMAGE=oraclelinux:8, then use yum to install the geneos-xtender
+# rpm package.
 COPY "./geneos-xtender*.deb" ./
-RUN apt-get update && apt-get install -y ./geneos-xtender*.deb && rm ./geneos-xtender*.deb
+COPY "./geneos-xtender*.rpm" ./
+
+RUN if [ "$IMAGE" = "ubuntu:focal" ]; then \
+    apt-get update && \
+    apt-get install -y ./geneos-xtender*.deb && \
+    rm ./geneos-xtender*.deb; \
+    rm ./geneos-xtender*.rpm; \
+    elif [ "$IMAGE" = "oraclelinux:8" ]; then \
+    dnf install -y ./geneos-xtender*.rpm && \
+    rm ./geneos-xtender*.deb; \
+    rm ./geneos-xtender*.rpm; \
+    fi
 
 COPY ./tests/bats/ ./tests/bats/
 

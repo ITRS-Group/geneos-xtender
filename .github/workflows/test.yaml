@@ -60,9 +60,26 @@ jobs:
           format: deb
           package: package_deb.yaml
 
+      - name: Build RPM Package
+        id: build_rpm
+        uses: kentik/pkg@v1.0.0-rc7
+        with:
+          name: geneos-xtender
+          version: ${{ steps.awk.outputs.version }}
+          arch: x86_64
+          format: rpm
+          package: package_rpm.yaml
+
       - name: ubuntu_focal - Build bats image
         run: |
-          docker build --platform linux/amd64 -t bats_tests_ubuntu_focal -f tests/integration_tests/Dockerfile --build-arg IMAGE=ubuntu:focal .
+          docker build --platform linux/amd64 -t bats_tests_ubuntu_focal -f tests/integration_tests/Dockerfile --build-arg IMAGE="ubuntu:focal" .
 
       - name: ubuntu_focal - Run bats image
-        run: docker run bats_tests_ubuntu_focal
+        run: docker run --platform linux/amd64 bats_tests_ubuntu_focal
+
+      - name: oracle_8 - Build bats image
+        run: |
+          docker build --platform linux/amd64 -t bats_tests_oracle_8 -f tests/integration_tests/Dockerfile --build-arg IMAGE="oraclelinux:8" .
+
+      - name: oracle_8 - Run bats image
+        run: docker run --platform linux/amd64 bats_tests_oracle_8
