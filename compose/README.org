@@ -11,7 +11,7 @@ docker login docker.itrsgroup.com
 
 ** Pull the wanted version of the image
 #+BEGIN_SRC bash
-docker pull docker.itrsgroup.com/geneos-xtender-netprobe:23.10
+docker pull docker.itrsgroup.com/geneos-xtender-netprobe:23.11
 #+END_SRC
 
 ** Create a directory /opt/xtender/docker if it doesn't already exist
@@ -27,7 +27,7 @@ cat <<EOF > /opt/xtender/docker/compose.yaml
 version: "3"
 services:
   xtender-netprobe:
-    image: docker.itrsgroup.com/geneos-xtender-netprobe:23.10
+    image: docker.itrsgroup.com/geneos-xtender-netprobe:23.11
     platform: linux/amd64
     ports:
       - "57036:7036"
@@ -39,7 +39,37 @@ services:
     volumes:
       - ./custom_plugins:/opt/xtender/plugins/custom:ro
       - ./custom_templates:/opt/xtender/templates/custom:ro
+      - ./secret.key:/opt/xtender/secret.key:ro
+      - ./secure:/netprobe/secure:ro
 EOF
+#+END_SRC
+
+The volumes for *secret.key* and *secure* are not mandatory.
+- *secret.key* would be the AES key used for encrypting any secret variables by the Gateway.
+- *secure* would be the directory in which to store the TLS related files if a secure connection is wanted.
+
+If you want to have a secure connection to your Gateway, add the TLS related files to the *secure* directory and use the following *compose.yaml* instead:
+
+#+BEGIN_SRC yaml
+
+version: "3"
+services:
+  xtender-netprobe:
+    image: docker.itrsgroup.com/geneos-xtender-netprobe:23.11
+    platform: linux/amd64
+    command: /netprobe/netprobe.linux_64 -ssl-certificate /netprobe/secure/netprobe.pem -secure -ssl-certificate-chain /netprobe/secure/chain.pem -ssl-certificate-key /netprobe/secure/netprobe.key
+    ports:
+      - "57036:7036"
+      - "57136:7136"
+      - "57137:7137"
+      - "58125:8125"
+      - "59137:9137"
+      - "58125:8125/udp"
+    volumes:
+      - ./custom_plugins:/opt/xtender/plugins/custom:ro
+      - ./custom_templates:/opt/xtender/templates/custom:ro
+      - ./secret.key:/opt/xtender/secret.key:ro
+      - ./secure:/netprobe/secure:ro
 #+END_SRC
 
 ** Make sure the compose.yaml file has the right owner and permissions
