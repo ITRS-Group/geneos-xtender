@@ -269,7 +269,8 @@ impl ProcessedCheckResult {
 impl ProcessedCheckResultsExt for ProcessedCheckResults {
     fn from_check_result(check_result: &CheckResult) -> Self {
         let perf_binding = check_result.performance_data();
-        let perf_metrics: Vec<String> = shellwords::split(&perf_binding).unwrap();
+        let perf_metrics: Vec<String> = shellwords::split(&perf_binding)
+            .unwrap_or_else(|_| panic!("Invalid perfdata, unable to split: '{}'", &perf_binding));
         let perf_count = perf_metrics.len();
         let mut results = ProcessedCheckResults::with_capacity(perf_count + 1);
 
