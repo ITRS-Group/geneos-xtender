@@ -1,4 +1,4 @@
-FROM blackdex/rust-musl:x86_64-musl-stable-1.73.0-openssl3 AS build
+FROM blackdex/rust-musl:x86_64-musl-stable-1.76.0-openssl3 AS build
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 COPY src /src
