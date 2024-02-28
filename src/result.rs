@@ -422,9 +422,13 @@ fn extract_long_output(output: &str) -> String {
 }
 
 fn extract_performance_data(output: &str) -> String {
-    output
-        .find('|')
-        .map_or_else(String::new, |i| output[i + 1..].trim().to_string())
+    if matches!(output, "Usage: check" | "[-h|--help]" | "usage: check") {
+        String::new()
+    } else {
+        output
+            .find('|')
+            .map_or_else(String::new, |i| output[i + 1..].trim().to_string())
+    }
 }
 
 #[cfg(test)]
