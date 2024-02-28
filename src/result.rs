@@ -159,7 +159,8 @@ impl CheckResultBuilder {
     pub fn parse_output(mut self, output: &str) -> Self {
         self.short_output = Some(extract_short_output(output));
         self.long_output = Some(extract_long_output(output));
-        self.performance_data = Some(extract_performance_data(output));
+        // TODO: Add error handling for the None case.
+        self.performance_data = Some(extract_performance_data(output).unwrap_or_default());
         self
     }
 
@@ -421,13 +422,14 @@ fn extract_long_output(output: &str) -> String {
         .to_string()
 }
 
-fn extract_performance_data(output: &str) -> String {
-    if matches!(output, "Usage: check" | "[-h|--help]" | "usage: check") {
-        String::new()
+fn extract_performance_data(output: &str) -> Option<String> {
+    if output.contains("Usage: check")
+        || output.contains("[-h|--help]")
+        || output.contains("usage: check")
+    {
+        None
     } else {
-        output
-            .find('|')
-            .map_or_else(String::new, |i| output[i + 1..].trim().to_string())
+        output.find('|').map(|i| output[i + 1..].trim().to_string())
     }
 }
 
