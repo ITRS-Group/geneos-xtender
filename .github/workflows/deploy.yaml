@@ -71,7 +71,7 @@ jobs:
         run: make
 
       - name: Archive binary
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: xtender
           path: xtender
@@ -101,7 +101,7 @@ jobs:
           package: package_rpm.yaml
 
       - name: Archive RPM Package
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.build_rpm.outputs.package }}
           path: ${{ steps.build_rpm.outputs.package }}
@@ -131,7 +131,7 @@ jobs:
           package: package_deb.yaml
 
       - name: Archive DEB Package
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.build_deb.outputs.package }}
           path: ${{ steps.build_deb.outputs.package }}
@@ -199,7 +199,7 @@ jobs:
         run: tar -czvf geneos-xtender-${{ needs.cargo_version.outputs.version }}-static-linux-amd64.tar.gz xtender
 
       - name: Archive release artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: release-artifacts
           path: |
