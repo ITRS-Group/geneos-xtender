@@ -86,7 +86,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download binary artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: xtender
 
@@ -116,7 +116,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download binary artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: xtender
 
@@ -152,12 +152,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download DEB Package artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: ${{ needs.package_deb.outputs.package_name }}
 
       - name: Download RPM Package artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: ${{ needs.package_rpm.outputs.package_name }}
 
@@ -181,17 +181,17 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download binary artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: xtender
 
       - name: Download DEB Package artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: ${{ needs.package_deb.outputs.package_name }}
 
       - name: Download RPM Package artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: ${{ needs.package_rpm.outputs.package_name }}
 
