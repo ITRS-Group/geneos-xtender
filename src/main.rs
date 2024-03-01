@@ -21,11 +21,11 @@ Toolkit Plugin.
 To decrypt encrypted environment variables, a key file must be
 provided. The key file can be provided either by using the
 --key-file option, or by placing a file named "secret.key" in
-the /opt/xtender/ directory. The key file must be readable by
+the /opt/itrs/xtender/ directory. The key file must be readable by
 the user running the xtender binary.
 
 All arguments following -- will be names of, or paths to Xtender
-Templates. For templates in the /opt/xtender/templates/ directory,
+Templates. For templates in the /opt/itrs/xtender/templates/ directory,
 it's possible to just specify the template name without
 the path and the file extension.
 
@@ -53,8 +53,8 @@ Make sure that each entry in the template follows this format:
     <command with args>
 "#;
 
-const TEMPLATES_DIR: &str = "/opt/xtender/templates/";
-const CUSTOM_TEMPLATES_DIR: &str = "/opt/xtender/templates/custom/";
+const TEMPLATES_DIR: &str = "/opt/itrs/xtender/templates/";
+const CUSTOM_TEMPLATES_DIR: &str = "/opt/itrs/xtender/templates/custom/";
 
 #[derive(Parser, Debug, Default)]
 #[command(about = ABOUT_XTENDER, author, version, long_about = None)]
@@ -146,19 +146,19 @@ async fn main() {
                 std::process::exit(1)
             }
         }
-    } else if let Ok(default_key_file) = fs::read_to_string("/opt/xtender/secret.key") {
+    } else if let Ok(default_key_file) = fs::read_to_string("/opt/itrs/xtender/secret.key") {
         let result = KeyFile::from_str(&default_key_file);
 
         match result {
             Ok(kf) => {
-                debug!("Loaded default key file from /opt/xtender/secret.key");
+                debug!("Loaded default key file from /opt/itrs/xtender/secret.key");
                 // Open the global KEY_FILE for writing just this once.
                 let mut key = KEY_FILE.write().unwrap();
                 *key = Some(kf);
             }
             Err(e) => {
                 error!(
-                    "Failed to parse default key file /opt/xtender/secret.key: {}",
+                    "Failed to parse default key file /opt/itrs/xtender/secret.key: {}",
                     e
                 );
                 std::process::exit(1)

@@ -27,13 +27,13 @@ assert_template_is_found() {
 }
 
 # @test "[pre-test] verify that the templates folder is not empty" {
-#     [ -d /opt/xtender/templates ]
-#     [ $(ls -l /opt/xtender/templates/*.yaml | wc -l) -gt 1 ]
+#     [ -d /opt/itrs/xtender/templates ]
+#     [ $(ls -l /opt/itrs/xtender/templates/*.yaml | wc -l) -gt 1 ]
 # }
 
 # @test "[pre-test] verify that the plugins folder is not empty" {
-#     [ -d /opt/xtender/plugins ]
-#     [ $(ls -l /opt/xtender/plugins/* | wc -l) -gt 0 ]
+#     [ -d /opt/itrs/xtender/plugins ]
+#     [ $(ls -l /opt/itrs/xtender/plugins/* | wc -l) -gt 0 ]
 # }
 
 # Begin main tests

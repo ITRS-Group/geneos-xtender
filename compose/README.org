@@ -14,16 +14,16 @@ docker login docker.itrsgroup.com
 docker pull docker.itrsgroup.com/geneos-xtender-netprobe:23.11
 #+END_SRC
 
-** Create a directory /opt/xtender/docker if it doesn't already exist
+** Create a directory /opt/itrs/xtender/docker if it doesn't already exist
 
 #+BEGIN_SRC bash
-mkdir -p /opt/xtender/docker
+mkdir -p /opt/itrs/xtender/docker
 #+END_SRC
 
-** Create the compose.yaml file /opt/xtender/docker/compose.yaml
+** Create the compose.yaml file /opt/itrs/xtender/docker/compose.yaml
 
 #+BEGIN_SRC bash
-cat <<EOF > /opt/xtender/docker/compose.yaml
+cat <<EOF > /opt/itrs/xtender/docker/compose.yaml
 version: "3"
 services:
   xtender-netprobe:
@@ -37,9 +37,9 @@ services:
       - "59137:9137"
       - "58125:8125/udp"
     volumes:
-      - ./custom_plugins:/opt/xtender/plugins/custom:ro
-      - ./custom_templates:/opt/xtender/templates/custom:ro
-      - ./secret.key:/opt/xtender/secret.key:ro
+      - ./custom_plugins:/opt/itrs/xtender/plugins/custom:ro
+      - ./custom_templates:/opt/itrs/xtender/templates/custom:ro
+      - ./secret.key:/opt/itrs/xtender/secret.key:ro
       - ./secure:/netprobe/secure:ro
 EOF
 #+END_SRC
@@ -66,16 +66,16 @@ services:
       - "59137:9137"
       - "58125:8125/udp"
     volumes:
-      - ./custom_plugins:/opt/xtender/plugins/custom:ro
-      - ./custom_templates:/opt/xtender/templates/custom:ro
-      - ./secret.key:/opt/xtender/secret.key:ro
+      - ./custom_plugins:/opt/itrs/xtender/plugins/custom:ro
+      - ./custom_templates:/opt/itrs/xtender/templates/custom:ro
+      - ./secret.key:/opt/itrs/xtender/secret.key:ro
       - ./secure:/netprobe/secure:ro
 #+END_SRC
 
 ** Make sure the compose.yaml file has the right owner and permissions
 
 #+BEGIN_SRC bash
-chown -R root:root /opt/xtender/docker && chmod 644 /opt/xtender/docker/compose.yaml
+chown -R root:root /opt/itrs/xtender/docker && chmod 644 /opt/itrs/xtender/docker/compose.yaml
 #+END_SRC
 
 ** Create the /usr/lib/systemd/system/geneos-xtender-netprobe.service file
@@ -88,9 +88,9 @@ Requires=docker.service
 After=docker.service
 [Service]
 Type=simple
-WorkingDirectory=/opt/xtender/docker
-ExecStart=/usr/bin/docker compose -f /opt/xtender/docker/compose.yaml up
-ExecStop=/usr/bin/docker compose -f /opt/xtender/docker/compose.yaml down
+WorkingDirectory=/opt/itrs/xtender/docker
+ExecStart=/usr/bin/docker compose -f /opt/itrs/xtender/docker/compose.yaml up
+ExecStop=/usr/bin/docker compose -f /opt/itrs/xtender/docker/compose.yaml down
 Restart=always
 RestartSec=10s
 [Install]

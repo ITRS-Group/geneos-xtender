@@ -55,7 +55,7 @@ Example _Xtender Template_ for a simple [SNMP](https://en.wikipedia.org/wiki/Sim
 
 Point your Toolkit Plugin sampler to the `xtender` binary followed by `--` and the path to one or more Xtender Templates. The checks will be run asynchronously, so the only real limiting factor is the I/O of the individual checks.
 
-Your own Xtender Templates should be put in `/opt/xtender/templates/custom/` where they can then be found by name. `/opt/xtender/templates/` is reserved for standard templates that may be included in future releases.
+Your own Xtender Templates should be put in `/opt/itrs/xtender/templates/custom/` where they can then be found by name. `/opt/itrs/xtender/templates/` is reserved for standard templates that may be included in future releases.
 
 #### Ranges
 There is a basic support for ranges inside the Xtender Templates. They will be expanded at run time for every step in each range. The format is `!!range-name:start_inclusive..end_inclusive!!`; example: `!!A:1..4!!`. This is useful when you want a check to run several times, for example to check different interfaces on the same host, or even different interfaces on different hosts. The example below will check interfaces `1-10` on hosts `192.168.1.1-5`:
