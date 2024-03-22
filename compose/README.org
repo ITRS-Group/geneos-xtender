@@ -11,7 +11,7 @@ docker login docker.itrsgroup.com
 
 ** Pull the wanted version of the image
 #+BEGIN_SRC bash
-docker pull docker.itrsgroup.com/geneos-xtender-netprobe:23.11
+docker pull docker.itrsgroup.com/geneos-xtender-netprobe:24.03
 #+END_SRC
 
 ** Create a directory /opt/itrs/xtender/docker if it doesn't already exist
@@ -27,7 +27,7 @@ cat <<EOF > /opt/itrs/xtender/docker/compose.yaml
 version: "3"
 services:
   xtender-netprobe:
-    image: docker.itrsgroup.com/geneos-xtender-netprobe:23.11
+    image: docker.itrsgroup.com/geneos-xtender-netprobe:24.03
     platform: linux/amd64
     ports:
       - "57036:7036"
@@ -55,7 +55,7 @@ If you want to have a secure connection to your Gateway, add the TLS related fil
 version: "3"
 services:
   xtender-netprobe:
-    image: docker.itrsgroup.com/geneos-xtender-netprobe:23.11
+    image: docker.itrsgroup.com/geneos-xtender-netprobe:24.03
     platform: linux/amd64
     command: /netprobe/netprobe.linux_64 -ssl-certificate /netprobe/secure/netprobe.pem -secure -ssl-certificate-chain /netprobe/secure/chain.pem -ssl-certificate-key /netprobe/secure/netprobe.key
     ports:
