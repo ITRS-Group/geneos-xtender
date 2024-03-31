@@ -119,6 +119,11 @@ impl ParsedTemplates {
 
 #[tokio::main]
 async fn main() {
+    if std::env::consts::OS == "windows" {
+        eprintln!("This application is not supported on Windows.");
+        std::process::exit(1);
+    }
+
     let parsed_args = Args::parse();
 
     stderrlog::new()

@@ -6,3 +6,5 @@ allow = [
 ]
 [sources.allow-org]
 github = ["ITRS-Group"]
+[advisories]
+ignore = ["RUSTSEC-2021-0145"] # Unaffected by this since xtender only runs on Linux.
