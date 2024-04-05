@@ -11,7 +11,7 @@ docker login docker.itrsgroup.com
 
 ** Pull the wanted version of the image
 #+BEGIN_SRC bash
-docker pull docker.itrsgroup.com/geneos-xtender-netprobe:24.03
+docker pull docker.itrsgroup.com/geneos-xtender-netprobe:24.04
 #+END_SRC
 
 ** Create a directory /opt/itrs/xtender/docker if it doesn't already exist
@@ -27,7 +27,7 @@ cat <<EOF > /opt/itrs/xtender/docker/compose.yaml
 version: "3"
 services:
   xtender-netprobe:
-    image: docker.itrsgroup.com/geneos-xtender-netprobe:24.03
+    image: docker.itrsgroup.com/geneos-xtender-netprobe:24.04
     platform: linux/amd64
     ports:
       - "57036:7036"
@@ -50,12 +50,12 @@ The volumes for *secret.key* and *secure* are not mandatory.
 
 If you want to have a secure connection to your Gateway, add the TLS related files to the *secure* directory and use the following *compose.yaml* instead:
 
-#+BEGIN_SRC yaml
-
+#+BEGIN_SRC bash
+cat <<EOF > /opt/itrs/xtender/docker/compose.yaml
 version: "3"
 services:
   xtender-netprobe:
-    image: docker.itrsgroup.com/geneos-xtender-netprobe:24.03
+    image: docker.itrsgroup.com/geneos-xtender-netprobe:24.04
     platform: linux/amd64
     command: /netprobe/netprobe.linux_64 -ssl-certificate /netprobe/secure/netprobe.pem -secure -ssl-certificate-chain /netprobe/secure/chain.pem -ssl-certificate-key /netprobe/secure/netprobe.key
     ports:
@@ -70,6 +70,7 @@ services:
       - ./custom_templates:/opt/itrs/xtender/templates/custom:ro
       - ./secret.key:/opt/itrs/xtender/secret.key:ro
       - ./secure:/netprobe/secure:ro
+EOF
 #+END_SRC
 
 ** Make sure the compose.yaml file has the right owner and permissions
