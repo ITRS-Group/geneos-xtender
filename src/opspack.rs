@@ -5,10 +5,10 @@ use crate::check::{CheckBuilder, Checks};
 
 #[derive(Clone, Debug, Default, serde::Serialize, PartialEq)]
 pub struct Opspack {
-    pub name: String,
-    pub description: String,
+    pub name: Option<String>,
+    pub description: Option<String>,
     #[serde(skip)]
-    pub checks: Checks,
+    pub checks: Option<Checks>,
 }
 
 const OPSVIEW_VARIABLE_RE: &str = r"[$%]([A-Z_:0-9]+)[$%]";
@@ -42,47 +42,52 @@ fn harmonize_opspack_variables(s: &str) -> Result<String, Box<dyn std::error::Er
 }
 
 impl Opspack {
-    pub fn new(name: &str, description: &str, checks: Checks) -> Self {
+    pub fn new(name: &str, description: &str, checks: Option<Checks>) -> Self {
         Self {
-            name: name.to_string(),
-            description: description.to_string(),
+            name: Some(name.to_string()),
+            description: Some(description.to_string()),
             checks,
         }
     }
 
     pub fn from_json(json: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let v: serde_json::Value = serde_json::from_str(json).unwrap();
-        let mut checks = Checks::new();
+        let mut checks: Option<Checks> = None;
 
-        let servicechecks = match v["servicecheck"].as_array() {
-            Some(servicechecks) => servicechecks,
-            None => return Err("No servicechecks found".into()),
-        };
+        if let Some(servicechecks) = v["servicecheck"].as_array() {
+            let mut found_checks = Checks::new();
 
-        for servicecheck in servicechecks {
-            let name = servicecheck["name"].as_str().unwrap();
-            let harmonized_name = harmonize_opspack_variables(name).unwrap();
-            let args = servicecheck["args"].as_str().unwrap();
-            let plugin_name = servicecheck["plugin"]["name"].as_str().unwrap();
-            let command = format!("{} {}", plugin_name, args);
-            let harmonized_command = harmonize_opspack_variables(&command).unwrap();
-            let c = CheckBuilder::new()
-                .name(&harmonized_name)
-                .command(&harmonized_command)
-                .build_raw();
-            checks.push(c);
+            for servicecheck in servicechecks {
+                let name = servicecheck["name"].as_str().unwrap();
+                let harmonized_name = harmonize_opspack_variables(name).unwrap();
+                let args = servicecheck["args"].as_str().unwrap();
+                let plugin_name = servicecheck["plugin"]["name"].as_str().unwrap();
+                let command = format!("{} {}", plugin_name, args);
+                let harmonized_command = harmonize_opspack_variables(&command).unwrap();
+                let c = CheckBuilder::new()
+                    .name(&harmonized_name)
+                    .command(&harmonized_command)
+                    .build_raw();
+                found_checks.push(c);
+            }
+
+            checks = Some(found_checks);
         }
+
         Ok(Self {
-            name: v["hosttemplate"][0]["name"].as_str().unwrap().to_string(),
+            name: v["hosttemplate"][0]["name"].as_str().map(|s| s.to_string()),
             description: v["hosttemplate"][0]["description"]
                 .as_str()
-                .unwrap()
-                .to_string(),
+                .map(|s| s.to_string()),
             checks,
         })
     }
 
     pub fn to_xtender_template(&self) -> Result<String, Box<dyn std::error::Error>> {
+        if self.name.is_none() && self.description.is_none() {
+            return Ok("".to_string());
+        }
+
         let mut output = serde_yaml::to_string(&self)?;
         output = output
             .replace("name:", "# name:")
@@ -157,17 +162,17 @@ mod tests {
   ]
 }"#;
         let opspack = Opspack::from_json(json).unwrap();
-        assert_eq!(opspack.name, "Check HTTP");
-        assert_eq!(opspack.description, "Check HTTP");
-        assert_eq!(opspack.checks.len(), 2);
-        assert_eq!(opspack.checks[0].name(), "Check HTTP A");
+        assert_eq!(opspack.name, Some("Check HTTP".to_string()));
+        assert_eq!(opspack.description, Some("Check HTTP".to_string()));
+        assert_eq!(opspack.checks.as_ref().unwrap().len(), 2);
+        assert_eq!(opspack.checks.as_ref().unwrap()[0].name(), "Check HTTP A");
         assert_eq!(
-            opspack.checks[0].secret_command_or_command(),
+            opspack.checks.as_ref().unwrap()[0].secret_command_or_command(),
             "check_http -H $HOSTADDRESS$ -a /"
         );
-        assert_eq!(opspack.checks[1].name(), "Check HTTP B");
+        assert_eq!(opspack.checks.as_ref().unwrap()[1].name(), "Check HTTP B");
         assert_eq!(
-            opspack.checks[1].secret_command_or_command(),
+            opspack.checks.as_ref().unwrap()[1].secret_command_or_command(),
             "check_http -H $HOSTADDRESS$ -b /"
         );
     }
@@ -231,7 +236,13 @@ mod tests {
 "#;
 
         let opspack = Opspack::from_json(json);
-        assert!(opspack.is_err());
+        assert!(opspack.is_ok());
+
+        let opspack = opspack.unwrap();
+
+        assert_eq!(opspack.name, None);
+        assert_eq!(opspack.description, None);
+        assert_eq!(opspack.checks, None);
     }
 
     #[test]
@@ -382,6 +393,15 @@ mod tests {
     check_rabbitmq_node -H $HOSTADDRESS$ -m sockets_used_percent -w 70 -c 80 -P '$RABBITMQ_CREDENTIALS_4$' -u '$RABBITMQ_CREDENTIALS_1$' -p '$RABBITMQ_CREDENTIALS_2$' -n '$RABBITMQ_CREDENTIALS_3$'
 "#;
 
+        assert_eq!(template, expected_template);
+    }
+
+    #[test]
+    fn test_empty_opspack() {
+        let json = "{}";
+        let opspack = Opspack::from_json(json).unwrap();
+        let template = opspack.to_xtender_template().unwrap();
+        let expected_template = "";
         assert_eq!(template, expected_template);
     }
 }
