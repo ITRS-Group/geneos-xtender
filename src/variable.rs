@@ -110,14 +110,14 @@ impl FromStr for Variable {
 
                     Ok(Self::Found(
                         s.to_string(),
-                        Some(value.clone()),
+                        Some(value),
                         Some(decrypted_value),
                     ))
                 } else {
                     Err(VariableError::NoKeyFileError(s.to_string()))
                 }
             } else {
-                Ok(Self::Found(s.to_string(), Some(value.clone()), None))
+                Ok(Self::Found(s.to_string(), Some(value), None))
             }
         } else {
             Ok(Self::NotFound(s.to_string()))
