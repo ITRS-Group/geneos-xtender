@@ -4,7 +4,7 @@ use geneos_xtender::check::{
 };
 use geneos_xtender::opspack::Opspack;
 use geneos_xtender::result::ProcessedCheckResultsExt;
-use geneos_xtender::variable::{KeyFile, KEY_FILE};
+use geneos_xtender::variable::{KeyFile, ALLOW_EMPTY_VARS, KEY_FILE};
 use log::{debug, error};
 use serde_yaml::Value;
 use std::fs;
@@ -59,6 +59,10 @@ const CUSTOM_TEMPLATES_DIR: &str = "/opt/itrs/xtender/templates/custom/";
 #[derive(Parser, Debug, Default)]
 #[command(about = ABOUT_XTENDER, author, version, long_about = None)]
 struct Args {
+    /// Allow variables to be empty or unset. May cause unexpected behaviour.
+    #[arg(long)]
+    allow_empty_vars: bool,
+
     /// Xtender Tempates containing checks to run in parallel
     #[arg(required = true, last = true)]
     templates: Option<Vec<String>>,
@@ -131,6 +135,15 @@ async fn main() {
         .verbosity(if parsed_args.debug { 4 } else { 0 })
         .init()
         .unwrap();
+
+    if ALLOW_EMPTY_VARS.set(parsed_args.allow_empty_vars).is_err() {
+        error!("Warning: Attempted to set ALLOW_EMPTY_VARS more than once.");
+        std::process::exit(1)
+    }
+
+    if parsed_args.allow_empty_vars {
+        debug!("The option --allow-empty-vars is set. Allowing empty or unset variables!");
+    }
 
     if let Some(key_file_path) = parsed_args.key_file {
         let key_file_string = fs::read_to_string(&key_file_path).unwrap_or_else(|_| {

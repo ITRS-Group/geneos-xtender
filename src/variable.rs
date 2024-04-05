@@ -1,12 +1,15 @@
 use hex::decode;
 use lazy_static::lazy_static;
 use log::debug;
+use once_cell::sync::OnceCell;
 use openssl::symm::{Cipher, Crypter, Mode};
 use serde::Serialize;
 use std::error::Error;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::RwLock;
+
+pub static ALLOW_EMPTY_VARS: OnceCell<bool> = OnceCell::new();
 
 lazy_static! {
     pub static ref KEY_FILE: RwLock<Option<KeyFile>> = RwLock::new(None);
@@ -119,6 +122,8 @@ impl FromStr for Variable {
             } else {
                 Ok(Self::Found(s.to_string(), Some(value), None))
             }
+        } else if matches!(ALLOW_EMPTY_VARS.get(), Some(true)) {
+            Ok(Self::Found(s.to_string(), Some(String::new()), None))
         } else {
             Ok(Self::NotFound(s.to_string()))
         }

@@ -34,6 +34,7 @@ wait-timeout = "0.2.0"
 openssl = "0.10.57"
 lazy_static = "1.4.0"
 hex = "0.4.3"
+once_cell = "1.19.0"
 
 [dev-dependencies]
 pretty_assertions = "1.3.0"

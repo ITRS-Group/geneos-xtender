@@ -181,6 +181,13 @@ const SAMPLE_YAML_TWO_SAME_RANGES: &str = r#"
     printf '%s %s %s' Hello !!A:1..3!! !!B:1..3!!
 ...
 "#;
+const SAMPLE_YAML_UNKNOWN_AND_KNOWN_ENV_VARS: &str = r#"
+---
+- name: test_mixed_variables
+  command: |
+    echo "should_be_empty: $SHOULD_BE_EMPTY$, should_be_known: $SHOULD_BE_KNOWN$"
+...
+"#;
 const SAMPLE_YAML_UNKNOWN_ENV_VARS: &str = r#"
 ---
 - name: test_foo_bar_baz_variable
@@ -526,6 +533,57 @@ fn test_display_unknown_env_vars() {
         .stdout(predicate::str::contains(CSV_HEADER_COLUMNS))
         .stdout(predicate::str::contains("foo_bar_baz:"))
         .stdout(predicate::str::contains(",,FOO_BAR_BAZ\n"));
+
+    drop(file_1);
+    dir.close().unwrap();
+}
+
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_display_mixed_env_vars_when_allow_empty_vars() {
+    std::env::set_var("SHOULD_BE_KNOWN", "foo");
+    let dir = tempdir().unwrap();
+    let file_1_path = dir.path().join("file_1.yaml");
+    let mut file_1 = File::create(&file_1_path).unwrap();
+
+    writeln!(file_1, "{}", SAMPLE_YAML_UNKNOWN_AND_KNOWN_ENV_VARS).unwrap();
+
+    let mut cmd = Command::cargo_bin("xtender").unwrap();
+    cmd.arg("--allow-empty-vars");
+    cmd.arg("--").arg(&file_1_path);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains(CSV_HEADER_COLUMNS))
+        .stdout(predicate::str::contains(
+            "should_be_empty: \\, should_be_known: foo",
+        ))
+        .stdout(predicate::str::contains(
+            ",SHOULD_BE_EMPTY=\"\"\\,SHOULD_BE_KNOWN=\"foo\",\n",
+        ));
+
+    drop(file_1);
+    dir.close().unwrap();
+}
+
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_ignore_unknown_env_vars_when_allow_empty_vars() {
+    let dir = tempdir().unwrap();
+    let file_1_path = dir.path().join("file_1.yaml");
+    let mut file_1 = File::create(&file_1_path).unwrap();
+
+    writeln!(file_1, "{}", SAMPLE_YAML_UNKNOWN_ENV_VARS).unwrap();
+
+    let mut cmd = Command::cargo_bin("xtender").unwrap();
+    cmd.arg("--allow-empty-vars");
+    cmd.arg("--").arg(&file_1_path);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains(CSV_HEADER_COLUMNS))
+        .stdout(predicate::str::contains("foo_bar_baz:"))
+        .stdout(predicate::str::contains(",FOO_BAR_BAZ=\"\",\n"));
 
     drop(file_1);
     dir.close().unwrap();
