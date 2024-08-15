@@ -625,8 +625,10 @@ fn test_error_encrypted_var_without_key() {
     let mut cmd = Command::cargo_bin("xtender").unwrap();
     cmd.arg("--").arg(&file_1_path);
 
-    cmd.assert().failure().stderr(predicate::str::contains(
-        "ERROR - Unable to build check: The variable \"ENCRYPTED_TEST_VAR_1\" is encrypted but no KeyFile was provided",
+    cmd.assert()
+       .failure()
+       .stderr(predicate::str::contains(
+        "Unable to build check: The variable \"ENCRYPTED_TEST_VAR_1\" is encrypted but no KeyFile was provided",
     ));
 
     drop(file_1);
