@@ -2,6 +2,7 @@ use assert_cmd::prelude::*; // Add methods on commands
 use predicates::prelude::*;
 use pretty_assertions::assert_eq;
 use serde::__private::from_utf8_lossy; // Used for writing assertions
+use serial_test::serial;
 use std::fs::File;
 use std::io::Write;
 use std::process::Command; // Run programs
@@ -262,6 +263,7 @@ fn test_command_1_sec_timeout() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+#[serial]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn test_command_exited_with_2() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
@@ -274,7 +276,9 @@ fn test_command_exited_with_2() -> Result<(), Box<dyn std::error::Error>> {
     writeln!(file_1, "{}", SAMPLE_YAML_EXITS_WITH_2)?;
     writeln!(file_2, "{}", SAMPLE_PLUGIN_EXITS_WITH_2)?;
 
-    std::env::set_var("SCRIPT", file_2_path);
+    unsafe {
+        std::env::set_var("SCRIPT", file_2_path);
+    }
 
     let mut cmd = Command::cargo_bin("xtender")?;
 
@@ -292,7 +296,9 @@ fn test_command_exited_with_2() -> Result<(), Box<dyn std::error::Error>> {
     drop(file_2);
     dir.close()?;
 
-    std::env::remove_var("SCRIPT");
+    unsafe {
+        std::env::remove_var("SCRIPT");
+    }
 
     Ok(())
 }
@@ -417,6 +423,7 @@ fn test_display_correct_execution_time() {
 }
 
 #[test]
+#[serial]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn test_display_multi_known_env_vars() {
     let dir = tempdir().unwrap();
@@ -431,7 +438,9 @@ fn test_display_multi_known_env_vars() {
     let current_user = match std::env::var("USER") {
         Ok(val) => val,
         Err(_) => {
-            std::env::set_var("USER", "unknown");
+            unsafe {
+                std::env::set_var("USER", "unknown");
+            }
             "unknown".to_string()
         }
     };
@@ -439,7 +448,9 @@ fn test_display_multi_known_env_vars() {
     let current_path = match std::env::var("PATH") {
         Ok(val) => val,
         Err(_) => {
-            std::env::set_var("PATH", "unknown");
+            unsafe {
+                std::env::set_var("PATH", "unknown");
+            }
             "unknown".to_string()
         }
     };
@@ -469,6 +480,7 @@ fn test_display_multi_known_env_vars() {
 }
 
 #[test]
+#[serial]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn test_display_multi_known_env_vars_single_command() {
     let dir = tempdir().unwrap();
@@ -483,7 +495,9 @@ fn test_display_multi_known_env_vars_single_command() {
     let current_user = match std::env::var("USER") {
         Ok(val) => val,
         Err(_) => {
-            std::env::set_var("USER", "unknown");
+            unsafe {
+                std::env::set_var("USER", "unknown");
+            }
             "unknown".to_string()
         }
     };
@@ -491,7 +505,9 @@ fn test_display_multi_known_env_vars_single_command() {
     let current_path = match std::env::var("PATH") {
         Ok(val) => val,
         Err(_) => {
-            std::env::set_var("PATH", "unknown");
+            unsafe {
+                std::env::set_var("PATH", "unknown");
+            }
             "unknown".to_string()
         }
     };
@@ -539,9 +555,12 @@ fn test_display_unknown_env_vars() {
 }
 
 #[test]
+#[serial]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn test_display_mixed_env_vars_when_allow_empty_vars() {
-    std::env::set_var("SHOULD_BE_KNOWN", "foo");
+    unsafe {
+        std::env::set_var("SHOULD_BE_KNOWN", "foo");
+    }
     let dir = tempdir().unwrap();
     let file_1_path = dir.path().join("file_1.yaml");
     let mut file_1 = File::create(&file_1_path).unwrap();
@@ -590,9 +609,12 @@ fn test_ignore_unknown_env_vars_when_allow_empty_vars() {
 }
 
 #[test]
+#[serial]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn test_error_encrypted_var_without_key() {
-    std::env::set_var("ENCRYPTED_TEST_VAR_1", ENCRYPTED_VAR_EXAMPLE1);
+    unsafe {
+        std::env::set_var("ENCRYPTED_TEST_VAR_1", ENCRYPTED_VAR_EXAMPLE1);
+    }
 
     let dir = tempdir().unwrap();
     let file_1_path = dir.path().join("file_1.yaml");
@@ -610,7 +632,9 @@ fn test_error_encrypted_var_without_key() {
     drop(file_1);
     dir.close().unwrap();
 
-    std::env::remove_var("ENCRYPTED_TEST_VAR_1");
+    unsafe {
+        std::env::remove_var("ENCRYPTED_TEST_VAR_1");
+    }
 }
 
 #[test]
@@ -698,9 +722,12 @@ fn test_output_multiple_missing_templates() -> Result<(), Box<dyn std::error::Er
 }
 
 #[test]
+#[serial]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn test_output_not_containing_secret_var() -> Result<(), Box<dyn std::error::Error>> {
-    std::env::set_var("ENCRYPTED_VAR_EXAMPLE1", ENCRYPTED_VAR_EXAMPLE1);
+    unsafe {
+        std::env::set_var("ENCRYPTED_VAR_EXAMPLE1", ENCRYPTED_VAR_EXAMPLE1);
+    }
 
     let dir = tempdir()?;
     let key_file_path = dir.path().join("keyfile");
@@ -728,7 +755,9 @@ fn test_output_not_containing_secret_var() -> Result<(), Box<dyn std::error::Err
     drop(file_1);
     dir.close()?;
 
-    std::env::remove_var("ENCRYPTED_VAR_EXAMPLE1");
+    unsafe {
+        std::env::remove_var("ENCRYPTED_VAR_EXAMPLE1");
+    }
 
     Ok(())
 }
@@ -975,11 +1004,14 @@ fn test_shasum_command_success() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+#[serial]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn test_success_encrypted_var_with_key() {
-    std::env::set_var("ENCRYPTED_TEST_VAR_1", ENCRYPTED_VAR_EXAMPLE1);
-    std::env::set_var("ENCRYPTED_TEST_VAR_2", ENCRYPTED_VAR_EXAMPLE2);
-    std::env::set_var("UNENCRYPTED_TEST_VAR_1", PLAINTEXT_VAR_EXAMPLE);
+    unsafe {
+        std::env::set_var("ENCRYPTED_TEST_VAR_1", ENCRYPTED_VAR_EXAMPLE1);
+        std::env::set_var("ENCRYPTED_TEST_VAR_2", ENCRYPTED_VAR_EXAMPLE2);
+        std::env::set_var("UNENCRYPTED_TEST_VAR_1", PLAINTEXT_VAR_EXAMPLE);
+    }
 
     let dir = tempdir().unwrap();
     let key_file_path = dir.path().join("keyfile");
@@ -1030,9 +1062,11 @@ fn test_success_encrypted_var_with_key() {
     drop(file_1);
     dir.close().unwrap();
 
-    std::env::remove_var("ENCRYPTED_TEST_VAR_1");
-    std::env::remove_var("ENCRYPTED_TEST_VAR_2");
-    std::env::remove_var("UNENCRYPTED_TEST_VAR_1");
+    unsafe {
+        std::env::remove_var("ENCRYPTED_TEST_VAR_1");
+        std::env::remove_var("ENCRYPTED_TEST_VAR_2");
+        std::env::remove_var("UNENCRYPTED_TEST_VAR_1");
+    }
 }
 
 #[test]
