@@ -238,7 +238,7 @@ async fn main() {
                     .name(&yaml_or_panic(check_map, "name"))
                     .command(&yaml_or_panic(check_map, "command"))
                     .timeout(
-                        match check_map.get(&serde_yaml::Value::String("timeout".to_string())) {
+                        match check_map.get(serde_yaml::Value::String("timeout".to_string())) {
                             Some(t) => t.as_u64().expect("The timeout is not a valid u64"),
                             None => DEFAULT_TIMEOUT,
                         },
@@ -349,7 +349,7 @@ fn find_and_read_template(template: &str) -> std::io::Result<String> {
 }
 
 fn yaml_to_optional_string(map: &serde_yaml::Mapping, key: &str) -> Option<String> {
-    map.get(&serde_yaml::Value::String(key.to_string()))
+    map.get(serde_yaml::Value::String(key.to_string()))
         .and_then(|v| v.as_str())
         .map(|s| s.trim())
         .map(|s| s.to_string())
