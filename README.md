@@ -116,7 +116,7 @@ For a stand-alone installation, download the DEB from [the latest release page](
 The whole Geneos Xtender project is released under the Apache-2.0 license.
 
 ``` text
-   Copyright 2023-2024 ITRS Group
+   Copyright 2023-2025 ITRS Group
 
    Licensed under the Apache License, Version 2.0 (the "License");
    you may not use this file except in compliance with the License.
