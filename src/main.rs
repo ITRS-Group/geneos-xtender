@@ -63,9 +63,22 @@ struct Args {
     #[arg(long)]
     allow_empty_vars: bool,
 
+    /// Command to run. This is only used if no templates are provided.
+    #[arg(short, long, requires = "name", conflicts_with = "templates")]
+    command: Option<String>,
+
+    /// Name of the check to run. This is only used if no templates are provided.
+    #[arg(short, long, requires = "command", conflicts_with = "templates")]
+    name: Option<String>,
+
     /// Xtender Tempates containing checks to run in parallel
-    #[arg(required = true, last = true)]
+    #[arg(conflicts_with_all = ["command", "name", "timeout"],
+          required_unless_present_any = ["command", "name", "opspack"])]
     templates: Option<Vec<String>>,
+
+    /// Timeout in seconds of the check to run. This is only used if no templates are provided.
+    #[arg(short, long, requires = "name", conflicts_with = "templates")]
+    timeout: Option<u64>,
 
     /// Enable debug logging
     #[arg(short, long)]
@@ -217,6 +230,26 @@ async fn main() {
 
     let mut checks = Checks::new();
     let mut parsed_templates = ParsedTemplates::new();
+
+    if let (Some(command), Some(name)) = (parsed_args.command, parsed_args.name) {
+        let check = CheckBuilder::new()
+            .name(&name)
+            .command(&command)
+            .timeout(parsed_args.timeout.unwrap_or(DEFAULT_TIMEOUT))
+            .build();
+
+        let range_checks = match check {
+            Ok(c) => c.expand_ranges(),
+            Err(e) => {
+                error!("Unable to build check: {}", e);
+                std::process::exit(1)
+            }
+        };
+
+        for rc in range_checks {
+            checks.push(rc);
+        }
+    }
 
     if let Some(template_names) = parsed_args.templates.clone() {
         parsed_templates = ParsedTemplates::from_template_names(&template_names);

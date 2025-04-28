@@ -375,7 +375,7 @@ fn test_command_two_range_vars_and_quotes() -> Result<(), Box<dyn std::error::Er
 
 #[test]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn test_command_with_range_variable() -> Result<(), Box<dyn std::error::Error>> {
+fn test_command_from_template_with_range_variable() -> Result<(), Box<dyn std::error::Error>> {
     let expected_output_1 = "test_1,0,Hello 1,,,,,,,,printf \'%s %s\' Hello 1,,";
     let expected_output_2 = "test_2,0,Hello 2,,,,,,,,printf \'%s %s\' Hello 2,,";
     let expected_output_3 = "test_3,0,Hello 3,,,,,,,,printf \'%s %s\' Hello 3,,";
@@ -398,6 +398,37 @@ fn test_command_with_range_variable() -> Result<(), Box<dyn std::error::Error>> 
 
     drop(file_1);
     dir.close()?;
+
+    Ok(())
+}
+
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_command_from_option_with_range_variable_and_timeout(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let expected_output_1 = "templatesFound,\n";
+    let expected_output_2 = "templatesNotFound,\n";
+    let expected_output_3 = "test_1,0,Hello 1,,,,,,,,printf \'%s %s\' Hello 1,,";
+    let expected_output_4 = "test_2,0,Hello 2,,,,,,,,printf \'%s %s\' Hello 2,,";
+    let expected_output_5 = "test_3,0,Hello 3,,,,,,,,printf \'%s %s\' Hello 3,,";
+
+    let mut cmd = Command::cargo_bin("xtender")?;
+
+    cmd.arg("-c")
+        .arg("printf '%s %s' Hello !!A:1..3!!")
+        .arg("-n")
+        .arg("test_!!A:1..3!!")
+        .arg("-t")
+        .arg("10");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains(CSV_HEADER_COLUMNS))
+        .stdout(predicate::str::contains(expected_output_1))
+        .stdout(predicate::str::contains(expected_output_2))
+        .stdout(predicate::str::contains(expected_output_3))
+        .stdout(predicate::str::contains(expected_output_4))
+        .stdout(predicate::str::contains(expected_output_5));
 
     Ok(())
 }
@@ -1069,6 +1100,30 @@ fn test_success_encrypted_var_with_key() {
         std::env::remove_var("ENCRYPTED_TEST_VAR_2");
         std::env::remove_var("UNENCRYPTED_TEST_VAR_1");
     }
+}
+
+#[test]
+fn test_success_single_command_as_option() -> Result<(), Box<dyn std::error::Error>> {
+    let expected_output_0 = "name,status,shortOutput";
+    let expected_output_1 = "<!>templatesFound,\n";
+    let expected_output_2 = "<!>templatesNotFound,\n";
+    let expected_output_3 = "test_with_single_command_as_option,0,hello";
+
+    let mut cmd = Command::cargo_bin("xtender")?;
+
+    cmd.arg("-c")
+        .arg("echo hello")
+        .arg("-n")
+        .arg("test_with_single_command_as_option");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains(expected_output_0))
+        .stdout(predicate::str::contains(expected_output_1))
+        .stdout(predicate::str::contains(expected_output_2))
+        .stdout(predicate::str::contains(expected_output_3));
+
+    Ok(())
 }
 
 #[test]
