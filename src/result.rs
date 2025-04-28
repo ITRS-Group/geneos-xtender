@@ -275,6 +275,7 @@ impl ProcessedCheckResultsExt for ProcessedCheckResults {
         let perf_count = perf_metrics.len();
         let mut results = ProcessedCheckResults::with_capacity(perf_count + 1);
 
+        // Special handling for 0 or 1 performance metric
         if perf_count < 2 {
             let mut c = ProcessedCheckResult::main_entry_from_check_result(check_result);
             if perf_count == 1 {
@@ -283,28 +284,19 @@ impl ProcessedCheckResultsExt for ProcessedCheckResults {
             }
             results.push(c);
             return results;
-        } else {
-            for (i, p) in perf_metrics.iter().enumerate() {
-                if i == 0 {
-                    let c1 = ProcessedCheckResult::main_entry_from_check_result(check_result);
-                    let mut c2 = ProcessedCheckResult::secondary_entry_from_check_result(
-                        check_result,
-                        &label(p).unwrap_or_default(),
-                    );
-                    c2 = c2.add_performance_data(p);
-                    c2 = c2.status_from_perfdata();
-                    results.push(c1);
-                    results.push(c2);
-                } else {
-                    let mut c = ProcessedCheckResult::secondary_entry_from_check_result(
-                        check_result,
-                        &label(p).unwrap_or_default(),
-                    );
-                    c = c.add_performance_data(p);
-                    c = c.status_from_perfdata();
-                    results.push(c);
-                }
-            }
+        }
+
+        // Handle 2+ performance metrics
+        results.push(ProcessedCheckResult::main_entry_from_check_result(
+            check_result,
+        ));
+
+        for p in &perf_metrics {
+            let label = label(p).unwrap_or_default();
+            let mut entry =
+                ProcessedCheckResult::secondary_entry_from_check_result(check_result, &label);
+            entry = entry.add_performance_data(p).status_from_perfdata();
+            results.push(entry);
         }
 
         results
