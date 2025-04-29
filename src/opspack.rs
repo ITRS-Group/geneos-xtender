@@ -1,5 +1,5 @@
 use serde_json;
-use serde_yaml;
+use serde_yml;
 
 use crate::check::{CheckBuilder, Checks};
 
@@ -88,12 +88,12 @@ impl Opspack {
             return Ok("".to_string());
         }
 
-        let mut output = serde_yaml::to_string(&self)?;
+        let mut output = serde_yml::to_string(&self)?;
         output = output
             .replace("name:", "# name:")
             .replace("description:", "# description:");
 
-        let mut checks_yaml = serde_yaml::to_string(&self.checks)?;
+        let mut checks_yaml = serde_yml::to_string(&self.checks)?;
 
         // Sometimes, checks get wrapped in single quotes. This means that all single quotes
         // already in the command double. We need to remove the surrounding single quotes as well

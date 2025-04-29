@@ -6,7 +6,7 @@ use geneos_xtender::opspack::Opspack;
 use geneos_xtender::result::ProcessedCheckResultsExt;
 use geneos_xtender::variable::{KeyFile, ALLOW_EMPTY_VARS, KEY_FILE};
 use log::{debug, error};
-use serde_yaml::Value;
+use serde_yml::Value;
 use std::fs;
 use std::path::Path;
 use std::str::FromStr;
@@ -256,7 +256,7 @@ async fn main() {
 
         for template in &parsed_templates.strings {
             let template_yaml: Value =
-                serde_yaml::from_str(template).expect("Failed to parse yaml template from string");
+                serde_yml::from_str(template).expect("Failed to parse yaml template from string");
 
             let yaml_checks_vec = template_yaml
                 .as_sequence()
@@ -271,7 +271,7 @@ async fn main() {
                     .name(&yaml_or_panic(check_map, "name"))
                     .command(&yaml_or_panic(check_map, "command"))
                     .timeout(
-                        match check_map.get(serde_yaml::Value::String("timeout".to_string())) {
+                        match check_map.get(serde_yml::Value::String("timeout".to_string())) {
                             Some(t) => t.as_u64().expect("The timeout is not a valid u64"),
                             None => DEFAULT_TIMEOUT,
                         },
@@ -381,14 +381,14 @@ fn find_and_read_template(template: &str) -> std::io::Result<String> {
     }
 }
 
-fn yaml_to_optional_string(map: &serde_yaml::Mapping, key: &str) -> Option<String> {
-    map.get(serde_yaml::Value::String(key.to_string()))
+fn yaml_to_optional_string(map: &serde_yml::Mapping, key: &str) -> Option<String> {
+    map.get(serde_yml::Value::String(key.to_string()))
         .and_then(|v| v.as_str())
         .map(|s| s.trim())
         .map(|s| s.to_string())
 }
 
-fn yaml_or_panic(map: &serde_yaml::Mapping, key: &str) -> String {
+fn yaml_or_panic(map: &serde_yml::Mapping, key: &str) -> String {
     yaml_to_optional_string(map, key)
         .unwrap_or_else(|| panic!("Unable to parse {} in check: {:?}", key, map))
 }
@@ -399,7 +399,7 @@ mod tests {
 
     #[test]
     fn test_yaml_to_str() {
-        let yaml = serde_yaml::from_str::<serde_yaml::Value>(
+        let yaml = serde_yml::from_str::<serde_yml::Value>(
             r#"
         foo: bar
         baz: qux
@@ -415,7 +415,7 @@ mod tests {
 
     #[test]
     fn test_yaml_to_str_missing_key() {
-        let yaml = serde_yaml::from_str::<serde_yaml::Value>(
+        let yaml = serde_yml::from_str::<serde_yml::Value>(
             r#"
         foo: bar
         baz: qux
@@ -430,7 +430,7 @@ mod tests {
 
     #[test]
     fn test_yaml_or_panic() {
-        let yaml = serde_yaml::from_str::<serde_yaml::Value>(
+        let yaml = serde_yml::from_str::<serde_yml::Value>(
             r#"
         foo: bar
         baz: qux
@@ -447,7 +447,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_yaml_or_panic_missing_key() {
-        let yaml = serde_yaml::from_str::<serde_yaml::Value>(
+        let yaml = serde_yml::from_str::<serde_yml::Value>(
             r#"
         foo: bar
         baz: qux
