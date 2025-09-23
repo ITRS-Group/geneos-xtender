@@ -1,7 +1,6 @@
 use assert_cmd::prelude::*; // Add methods on commands
 use predicates::prelude::*;
 use pretty_assertions::assert_eq;
-use serde::__private::from_utf8_lossy; // Used for writing assertions
 use serial_test::serial;
 use std::fs::File;
 use std::io::Write;
@@ -808,7 +807,7 @@ fn test_output_template_from_opspack_json() -> Result<(), Box<dyn std::error::Er
     cmd.arg("-o").arg(file_1_path);
 
     let binding = cmd.assert().success();
-    let output_string = from_utf8_lossy(&binding.get_output().stdout);
+    let output_string = String::from_utf8_lossy(&binding.get_output().stdout);
 
     assert_eq!(SAMPLE_OPSPACK_AS_TEMPLATE, output_string);
 
