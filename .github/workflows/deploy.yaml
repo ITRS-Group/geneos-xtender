@@ -74,7 +74,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: xtender
-          path: xtender
+          path: target/release/xtender
 
   package_rpm:
     name: Build RPM Package
