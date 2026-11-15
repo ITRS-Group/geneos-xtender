@@ -446,7 +446,7 @@ fn test_display_correct_execution_time() {
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("executionTime"))
-        .stdout(predicate::str::contains("test_1,0,,,,,,,,,sleep 1,,,1.0"));
+        .stdout(predicate::str::is_match(r"\ntest_1,0,,,,,,,,,sleep 1,,,1\.\d+ s,").unwrap());
 
     drop(file_1);
     dir.close().unwrap();
