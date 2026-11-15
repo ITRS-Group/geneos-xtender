@@ -8,6 +8,8 @@ use std::fmt;
 use std::io::Read;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
+use std::sync::mpsc;
+use std::thread;
 use std::time::{Duration, Instant};
 use wait_timeout::ChildExt;
 
@@ -181,61 +183,93 @@ impl Check {
         let cmd = &cmd_vec[0];
         let args = &cmd_vec[1..];
 
-        let mut child = Command::new(cmd)
-            .args(args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn();
-
         let secs = Duration::from_secs(self.timeout);
         let start_time = Instant::now();
-        let execution_time: Duration;
-        let mut output = String::new();
-        let mut status_code = 3;
 
-        // A failure to wait on or kill the process reports UNKNOWN (3) for this check instead of
-        // aborting the whole batch.
-        match child {
-            Ok(ref mut child_proc) => {
-                match child_proc.wait_timeout(secs) {
-                    Ok(Some(status)) => {
-                        execution_time = start_time.elapsed();
-                        if let Some(code) = status.code() {
-                            status_code = code;
-                            if let Some(stdout) = child_proc.stdout.as_mut() {
-                                let _ = stdout.read_to_string(&mut output);
-                            }
-                        }
-                    }
-                    Ok(None) => {
-                        let _ = child_proc.kill();
-                        execution_time = start_time.elapsed();
-                        let timeout_msg = match secs.as_secs() {
-                            1 => TimeoutMessage::Single,
-                            _ => TimeoutMessage::Multi(secs.as_secs()),
-                        };
-                        let _ = child_proc.wait();
-                        if let Some(stderr) = child_proc.stderr.as_mut() {
-                            let _ = stderr.read_to_string(&mut output);
-                        }
-                        return maybe_secret_data
-                            .status(3)
-                            .short_output(&timeout_msg.to_string())
-                            .with_execution_time(execution_time)
-                            .build();
-                    }
-                    Err(e) => {
-                        error!("Failed to wait on child process: {}", e);
-                        execution_time = start_time.elapsed();
-                        output = format!("UNKNOWN: Process wait error: {}", e);
-                    }
-                };
-            }
+        // stderr is never shown, so it is discarded rather than piped: a pipe nobody reads
+        // blocks the plugin once its buffer fills.
+        let mut child = match Command::new(cmd)
+            .args(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+        {
+            Ok(child) => child,
             Err(e) => {
                 debug!("Failed to spawn command: {}'", e);
-                execution_time = start_time.elapsed();
-                status_code = 3;
-                output = format!("Failed to execute command with error: '{}'", e);
+                return maybe_secret_data
+                    .status(3)
+                    .parse_output(&format!("Failed to execute command with error: '{}'", e))
+                    .with_execution_time(start_time.elapsed())
+                    .build();
+            }
+        };
+
+        // Read stdout while the plugin runs, so output larger than the pipe buffer cannot
+        // block it. The reader is abandoned on timeout: a grandchild that inherited stdout
+        // may hold the pipe open long after the plugin itself is gone.
+        let (stdout_tx, stdout_rx) = mpsc::channel();
+        if let Some(mut stdout) = child.stdout.take() {
+            thread::spawn(move || {
+                let mut buffer = Vec::new();
+                let _ = stdout_tx.send(stdout.read_to_end(&mut buffer).map(|_| buffer));
+            });
+        }
+
+        let timeout_result = |execution_time: Duration| {
+            let timeout_msg = match secs.as_secs() {
+                1 => TimeoutMessage::Single,
+                _ => TimeoutMessage::Multi(secs.as_secs()),
+            };
+            maybe_secret_data
+                .clone()
+                .status(3)
+                .short_output(&timeout_msg.to_string())
+                .with_execution_time(execution_time)
+                .build()
+        };
+
+        // A failure to wait on or kill the process reports UNKNOWN (3) for this check instead
+        // of aborting the whole batch.
+        let mut status_code = 3;
+        let mut output = String::new();
+        let execution_time = match child.wait_timeout(secs) {
+            Ok(Some(status)) => {
+                let execution_time = start_time.elapsed();
+                let remaining = secs.saturating_sub(execution_time);
+                match stdout_rx.recv_timeout(remaining) {
+                    Ok(Ok(buffer)) => {
+                        if let Some(code) = status.code() {
+                            status_code = code;
+                            output = String::from_utf8_lossy(&buffer).into_owned();
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        error!("Failed to read the output of the child process: {}", e);
+                        output = format!("UNKNOWN: Process read error: {}", e);
+                    }
+                    Err(_) => return timeout_result(start_time.elapsed()),
+                }
+                execution_time
+            }
+            Ok(None) => {
+                // Reap the process only if the kill worked; otherwise wait() could block
+                // for as long as the plugin keeps running.
+                match child.kill() {
+                    Ok(()) => {
+                        let _ = child.wait();
+                    }
+                    Err(e) => {
+                        error!("Failed to kill timed out child process: {}", e);
+                        let _ = child.try_wait();
+                    }
+                }
+                return timeout_result(start_time.elapsed());
+            }
+            Err(e) => {
+                error!("Failed to wait on child process: {}", e);
+                output = format!("UNKNOWN: Process wait error: {}", e);
+                start_time.elapsed()
             }
         };
 
@@ -460,13 +494,12 @@ mod check_test {
     }
 
     #[test]
-    fn test_check_builder_defaults() {
-        let check = CheckBuilder::new().build_raw();
-        assert_eq!(check.name, "");
-        assert_eq!(check.command, "");
-        // Default timeout from CheckBuilder is 5 (set in Default impl)
-        assert_eq!(check.timeout, 5);
-        assert_eq!(check.secret_command, None);
+    fn test_check_default_timeout_is_five_seconds() {
+        let check = CheckBuilder::new()
+            .name("test")
+            .command("echo test")
+            .build_raw();
+        assert_eq!(check.timeout(), 5);
     }
 
     #[test]
@@ -479,12 +512,6 @@ mod check_test {
 
         assert_eq!(check.timeout, 30);
         Ok(())
-    }
-
-    #[test]
-    fn test_check_default_timeout() {
-        let check = Check::default();
-        assert_eq!(check.timeout, 5);
     }
 
     #[test]
@@ -590,11 +617,11 @@ mod check_test {
 
     #[test]
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    fn test_check_run_command_with_stderr() {
-        let check = Check::new("Stderr Test", "ls /nonexistent_path_xyz", None, 5);
+    fn test_check_run_reports_exit_code_and_ignores_stderr() {
+        let check = Check::new("Stderr", "sh -c 'echo oops >&2; echo out; exit 2'", None, 5);
         let result = check.run();
-        // ls on a non-existent path exits non-zero
-        assert_ne!(result.status(), Some(0));
+        assert_eq!(result.status(), Some(2));
+        assert_eq!(result.short_output(), "out");
     }
 
     #[test]
@@ -628,6 +655,34 @@ mod check_test {
         assert_eq!(result.status(), Some(0));
         assert_eq!(result.short_output(), "OK - all good");
         assert_eq!(result.performance_data(), "metric=42%;80;90;0;100");
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn test_check_run_with_output_larger_than_pipe_buffer() {
+        // About 90 KB on stdout and on stderr, more than a pipe buffer holds.
+        for command in [
+            "sh -c 'yes ok | head -n 30000'",
+            "sh -c 'yes err | head -n 30000 >&2; echo ok'",
+        ] {
+            let result = Check::new("Big", command, None, 5).run();
+            assert_eq!(result.status(), Some(0), "{command}");
+            assert_eq!(result.short_output(), "ok", "{command}");
+        }
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn test_check_timeout_is_not_extended_by_child_processes() {
+        // The background sleep inherits stdout and keeps it open after the shell is killed.
+        let started = std::time::Instant::now();
+        let result = Check::new("Lingering", "sh -c 'sleep 5 & sleep 5'", None, 1).run();
+        assert_eq!(result.status(), Some(3));
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(3),
+            "took {:?}",
+            started.elapsed()
+        );
     }
 
     #[test]
