@@ -209,14 +209,17 @@ impl CheckResults {
 }
 
 impl ProcessedCheckResult {
+    // Perfdata comes from the plugin, so each field is escaped like the other output
+    // columns: a comma or line break in it must not add columns or rows to the CSV.
     fn add_performance_data(mut self, perf: &str) -> Self {
-        self.label = label(perf);
+        let escaped = |field: Option<String>| field.map(|f| escape_chars(&f));
+        self.label = escaped(label(perf));
         self.value = value(perf);
-        self.uom = uom(perf);
-        self.warn = warn(perf);
-        self.crit = crit(perf);
-        self.min = min(perf);
-        self.max = max(perf);
+        self.uom = escaped(uom(perf));
+        self.warn = escaped(warn(perf));
+        self.crit = escaped(crit(perf));
+        self.min = escaped(min(perf));
+        self.max = escaped(max(perf));
         self
     }
 
@@ -283,7 +286,7 @@ impl ProcessedCheckResult {
 
     pub fn secondary_entry_from_check_result(check_result: &CheckResult, label: &str) -> Self {
         Self {
-            name: format!("\t{}#{}", check_result.name(), label),
+            name: format!("\t{}#{}", check_result.name(), escape_chars(label)),
             ..ProcessedCheckResult::default()
         }
     }

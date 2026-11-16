@@ -355,3 +355,28 @@ fn test_check_result_with_perfdata_and_long_output() {
         csv_results
     );
 }
+
+/// Plugin perfdata cannot add rows or columns to the CSV: every line keeps the header's
+/// column count and none becomes a headline.
+#[test]
+fn test_perfdata_cannot_change_csv_structure() {
+    for output in [
+        "OK|a=1 'x\n<!>fake,1'=2",
+        "OK|'a,b'=1;2,3;4,5;0,1;9,9 c=2",
+        "OK\nlong|'x\n<!>y'=1 'p,q'=2",
+    ] {
+        let c = CheckResultBuilder::new()
+            .name("Inject")
+            .command("check_foo")
+            .parse_output(output)
+            .build();
+        let csv = CheckResults(vec![c]).process().as_csv_string().unwrap();
+        let columns = |line: &str| line.replace("\\,", "").matches(',').count();
+        let mut lines = csv.lines();
+        let header_columns = columns(lines.next().unwrap());
+        for line in lines {
+            assert!(!line.starts_with("<!>"), "{output:?}\n{csv}");
+            assert_eq!(columns(line), header_columns, "{output:?}\n{csv}");
+        }
+    }
+}
