@@ -6,9 +6,9 @@ use geneos_xtender::opspack::Opspack;
 use geneos_xtender::result::ProcessedCheckResultsExt;
 use geneos_xtender::variable::{KeyFile, ALLOW_EMPTY_VARS, KEY_FILE};
 use log::{debug, error};
-use serde_yml::Value;
+use serde::Deserialize;
 use std::fs;
-use std::path::Path;
+use std::path::{Component, Path};
 use std::str::FromStr;
 
 const ABOUT_XTENDER: &str = r#"
@@ -44,14 +44,22 @@ $ xtender -- network-base /path/to/other/template.yaml
 
 const DEFAULT_TIMEOUT: u64 = 5;
 
-const INVALID_YAML_SEQ_ERROR_MSG: &str = r#"
-The parsed Xtender Template yaml string is not a valid sequence.
+const INVALID_TEMPLATE_ERROR_MSG: &str = r#"
+The parsed Xtender Template is not a valid sequence of checks.
 Make sure that each entry in the template follows this format:
 - name: <name>
   timeout: <timeout> # (optional)
   command: |
     <command with args>
 "#;
+
+/// One entry in an Xtender template. Unknown keys are ignored.
+#[derive(Deserialize)]
+struct TemplateCheck {
+    name: String,
+    command: String,
+    timeout: Option<u64>,
+}
 
 const TEMPLATES_DIR: &str = "/opt/itrs/xtender/templates/";
 const CUSTOM_TEMPLATES_DIR: &str = "/opt/itrs/xtender/templates/custom/";
@@ -124,10 +132,12 @@ impl ParsedTemplates {
     fn from_template_names(template_names: &[String]) -> Self {
         let mut parsed_templates = Self::new();
         for template_name in template_names {
-            if let Ok(t) = find_and_read_template(template_name) {
-                parsed_templates.add_found(template_name, t);
-            } else {
-                parsed_templates.add_missing(template_name);
+            match find_and_read_template(template_name) {
+                Ok(t) => parsed_templates.add_found(template_name, t),
+                Err(e) => {
+                    error!("{}", e);
+                    parsed_templates.add_missing(template_name);
+                }
             }
         }
         parsed_templates
@@ -145,7 +155,8 @@ async fn main() {
 
     stderrlog::new()
         .module(module_path!())
-        .verbosity(if parsed_args.debug { 4 } else { 0 })
+        .module("geneos_xtender")
+        .verbosity(if parsed_args.debug { 4 } else { 1 })
         .init()
         .unwrap();
 
@@ -254,28 +265,17 @@ async fn main() {
     if let Some(template_names) = parsed_args.templates.clone() {
         parsed_templates = ParsedTemplates::from_template_names(&template_names);
 
+        // A malformed template aborts the run instead of skipping entries: partial CSV
+        // output would give the Toolkit plugin a dataview with checks silently missing.
         for template in &parsed_templates.strings {
-            let template_yaml: Value =
-                serde_yml::from_str(template).expect("Failed to parse yaml template from string");
+            let template_checks: Vec<TemplateCheck> = serde_saphyr::from_str(template)
+                .unwrap_or_else(|e| panic!("{}\n{}", e, INVALID_TEMPLATE_ERROR_MSG));
 
-            let yaml_checks_vec = template_yaml
-                .as_sequence()
-                .expect(INVALID_YAML_SEQ_ERROR_MSG);
-
-            for check in yaml_checks_vec {
-                let check_map = check
-                    .as_mapping()
-                    .unwrap_or_else(|| panic!("The check is not a valid mapping: {:?}", check));
-
+            for template_check in template_checks {
                 let c = CheckBuilder::new()
-                    .name(&yaml_or_panic(check_map, "name"))
-                    .command(&yaml_or_panic(check_map, "command"))
-                    .timeout(
-                        match check_map.get(serde_yml::Value::String("timeout".to_string())) {
-                            Some(t) => t.as_u64().expect("The timeout is not a valid u64"),
-                            None => DEFAULT_TIMEOUT,
-                        },
-                    )
+                    .name(template_check.name.trim())
+                    .command(template_check.command.trim())
+                    .timeout(template_check.timeout.unwrap_or(DEFAULT_TIMEOUT))
                     .build();
 
                 let range_checks = match c {
@@ -347,50 +347,46 @@ fn is_yaml_file(path: &str) -> bool {
     path.ends_with(".yaml") || path.ends_with(".yml")
 }
 
+/// A template name is a single path component, like `network-base`, and is looked up in
+/// the template directories. Anything else is a path chosen by the operator.
+fn is_template_name(template: &str) -> bool {
+    let mut components = Path::new(template).components();
+    matches!(
+        (components.next(), components.next()),
+        (Some(Component::Normal(_)), None)
+    )
+}
+
+/// Read a template given as a path, or by name from the template directories. The custom
+/// directory comes first so that a modified copy there overrides a standard template.
+/// Template arguments come from the operator, who can already run any command through a
+/// template, so a path is read as given; only names are confined to the directories.
 fn find_and_read_template(template: &str) -> std::io::Result<String> {
     if is_valid_path(template) && is_yaml_file(template) {
-        fs::read_to_string(template)
-    } else {
-        let dist_yaml_path = format!("{}{}.yaml", TEMPLATES_DIR, template);
-        let dist_yml_path = format!("{}{}.yml", TEMPLATES_DIR, template);
-        let custom_yaml_path = format!("{}{}.yaml", CUSTOM_TEMPLATES_DIR, template);
-        let custom_yml_path = format!("{}{}.yml", CUSTOM_TEMPLATES_DIR, template);
+        return fs::read_to_string(template);
+    }
 
-        // Look for the template in the custom directory first, so that the user can override
-        // a template by placing a modified copy in the custom directory.
-        if let Ok(template_string) = fs::read_to_string(&custom_yaml_path) {
-            debug!("Found template file: {}", &custom_yaml_path);
-            Ok(template_string)
-        } else if let Ok(template_string) = fs::read_to_string(&custom_yml_path) {
-            debug!("Found template file: {}", &custom_yml_path);
-            Ok(template_string)
-        } else if let Ok(template_string) = fs::read_to_string(&dist_yaml_path) {
-            debug!("Found template file: {}", &dist_yaml_path);
-            Ok(template_string)
-        } else if let Ok(template_string) = fs::read_to_string(&dist_yml_path) {
-            debug!("Found template file: {}", &dist_yml_path);
-            Ok(template_string)
-        } else {
-            debug!(
-                "Unable to find template file in standard directories, trying as path: {}",
-                template
-            );
-
-            Ok(fs::read_to_string(template)?)
+    if is_template_name(template) {
+        for dir in [CUSTOM_TEMPLATES_DIR, TEMPLATES_DIR] {
+            for extension in ["yaml", "yml"] {
+                let path = format!("{}{}.{}", dir, template, extension);
+                if let Ok(template_string) = fs::read_to_string(&path) {
+                    debug!("Found template file: {}", &path);
+                    return Ok(template_string);
+                }
+            }
         }
     }
-}
 
-fn yaml_to_optional_string(map: &serde_yml::Mapping, key: &str) -> Option<String> {
-    map.get(serde_yml::Value::String(key.to_string()))
-        .and_then(|v| v.as_str())
-        .map(|s| s.trim())
-        .map(|s| s.to_string())
-}
-
-fn yaml_or_panic(map: &serde_yml::Mapping, key: &str) -> String {
-    yaml_to_optional_string(map, key)
-        .unwrap_or_else(|| panic!("Unable to parse {} in check: {:?}", key, map))
+    fs::read_to_string(template).map_err(|e| {
+        std::io::Error::new(
+            e.kind(),
+            format!(
+                "Unable to read template '{}' as a path ({}) or find it in {} or {}",
+                template, e, CUSTOM_TEMPLATES_DIR, TEMPLATES_DIR
+            ),
+        )
+    })
 }
 
 #[cfg(test)]
@@ -398,65 +394,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_yaml_to_str() {
-        let yaml = serde_yml::from_str::<serde_yml::Value>(
-            r#"
-        foo: bar
-        baz: qux
-    "#,
-        )
-        .unwrap();
-
-        let map = yaml.as_mapping().unwrap();
-
-        assert_eq!(yaml_to_optional_string(map, "foo"), Some("bar".to_string()));
-        assert_eq!(yaml_to_optional_string(map, "baz"), Some("qux".to_string()));
-    }
-
-    #[test]
-    fn test_yaml_to_str_missing_key() {
-        let yaml = serde_yml::from_str::<serde_yml::Value>(
-            r#"
-        foo: bar
-        baz: qux
-    "#,
-        )
-        .unwrap();
-
-        let map = yaml.as_mapping().unwrap();
-
-        assert_eq!(yaml_to_optional_string(map, "missing"), None);
-    }
-
-    #[test]
-    fn test_yaml_or_panic() {
-        let yaml = serde_yml::from_str::<serde_yml::Value>(
-            r#"
-        foo: bar
-        baz: qux
-    "#,
-        )
-        .unwrap();
-
-        let map = yaml.as_mapping().unwrap();
-
-        assert_eq!(yaml_or_panic(map, "foo"), "bar".to_string());
-        assert_eq!(yaml_or_panic(map, "baz"), "qux".to_string());
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_yaml_or_panic_missing_key() {
-        let yaml = serde_yml::from_str::<serde_yml::Value>(
-            r#"
-        foo: bar
-        baz: qux
-    "#,
-        )
-        .unwrap();
-
-        let map = yaml.as_mapping().unwrap();
-
-        yaml_or_panic(map, "missing");
+    fn test_is_template_name() {
+        assert!(is_template_name("network-base"));
+        assert!(is_template_name("base.v2"));
+        assert!(!is_template_name("../network-base"));
+        assert!(!is_template_name("custom/network-base"));
+        assert!(!is_template_name("/etc/network-base"));
+        assert!(!is_template_name(".."));
+        assert!(!is_template_name(""));
     }
 }

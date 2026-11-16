@@ -1,7 +1,18 @@
 use crate::variable::{Variables, VariablesExt};
+use lazy_static::lazy_static;
 use regex::Regex;
 use serde::Serialize;
 use std::str::FromStr;
+
+lazy_static! {
+    static ref LABEL_RE: Regex = Regex::new("([^=]+)=([^=]+)").unwrap();
+    static ref VALUE_RE: Regex = Regex::new("([^=;]+)=?([0-9.]+)").unwrap();
+    static ref UOM_RE: Regex = Regex::new("([0-9'=]+)([^0-9'=; ]+)([ ;]|$)").unwrap();
+    static ref WARN_RE: Regex = Regex::new("([^;]*;)([^;]+)(.*)").unwrap();
+    static ref CRIT_RE: Regex = Regex::new("([^;]*;)([^;]+;)([^;]+)(.*)").unwrap();
+    static ref MIN_RE: Regex = Regex::new("([^;]*;)([^;]+;)([^;]+;)([^;]+)(.*)").unwrap();
+    static ref MAX_RE: Regex = Regex::new("([^;]*;)([^;]+;)([^;]+;)([^;]+;)([^;]+)(.*)").unwrap();
+}
 
 #[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -159,7 +170,6 @@ impl CheckResultBuilder {
     pub fn parse_output(mut self, output: &str) -> Self {
         self.short_output = Some(extract_short_output(output));
         self.long_output = Some(extract_long_output(output));
-        // TODO: Add error handling for the None case.
         self.performance_data = Some(extract_performance_data(output).unwrap_or_default());
         self
     }
@@ -210,32 +220,44 @@ impl ProcessedCheckResult {
         self
     }
 
+    // A threshold that can't be parsed gives UNKNOWN (3) instead of letting the value pass as OK.
     fn status_from_perfdata(mut self) -> Self {
         if self.status.is_some() {
             return self;
         }
 
-        if self.value.is_none() {
-            return self;
-        }
+        let val = match self.value {
+            Some(v) => v,
+            None => return self,
+        };
 
         if let Some(c) = self.crit.as_ref() {
-            if perfdata::ThresholdRange::from_str(c.as_str())
-                .unwrap()
-                .is_alert(self.value.unwrap())
-            {
-                self.status = Some(2);
-                return self;
+            match perfdata::ThresholdRange::from_str(c.as_str()) {
+                Ok(range) => {
+                    if range.is_alert(val) {
+                        self.status = Some(2);
+                        return self;
+                    }
+                }
+                Err(_) => {
+                    self.status = Some(3);
+                    return self;
+                }
             }
         }
 
         if let Some(w) = self.warn.as_ref() {
-            if perfdata::ThresholdRange::from_str(w.as_str())
-                .unwrap()
-                .is_alert(self.value.unwrap())
-            {
-                self.status = Some(1);
-                return self;
+            match perfdata::ThresholdRange::from_str(w.as_str()) {
+                Ok(range) => {
+                    if range.is_alert(val) {
+                        self.status = Some(1);
+                        return self;
+                    }
+                }
+                Err(_) => {
+                    self.status = Some(3);
+                    return self;
+                }
             }
         }
 
@@ -270,8 +292,9 @@ impl ProcessedCheckResult {
 impl ProcessedCheckResultsExt for ProcessedCheckResults {
     fn from_check_result(check_result: &CheckResult) -> Self {
         let perf_binding = check_result.performance_data();
+        // Perfdata with unbalanced quotes falls back to splitting on whitespace.
         let perf_metrics: Vec<String> = shellwords::split(&perf_binding)
-            .unwrap_or_else(|_| panic!("Invalid perfdata, unable to split: '{}'", &perf_binding));
+            .unwrap_or_else(|_| perf_binding.split_whitespace().map(String::from).collect());
         let perf_count = perf_metrics.len();
         let mut results = ProcessedCheckResults::with_capacity(perf_count + 1);
 
@@ -319,56 +342,49 @@ impl ProcessedCheckResultsExt for ProcessedCheckResults {
 }
 
 fn label(perf: &str) -> Option<String> {
-    Regex::new("([^=]+)=([^=]+)")
-        .unwrap()
+    LABEL_RE
         .captures(perf)
         .and_then(|cap| cap.get(1))
         .map(|m| m.as_str().trim_matches('\'').to_string())
 }
 
 fn value(perf: &str) -> Option<f64> {
-    Regex::new("([^=;]+)=?([0-9.]+)")
-        .unwrap()
+    VALUE_RE
         .captures(perf)
         .and_then(|cap| cap.get(2))
         .and_then(|m| f64::from_str(m.as_str()).ok())
 }
 
 fn uom(perf: &str) -> Option<String> {
-    Regex::new("([0-9'=]+)([^0-9'=; ]+)([ ;]|$)")
-        .unwrap()
+    UOM_RE
         .captures(perf)
         .and_then(|cap| cap.get(2))
         .map(|m| m.as_str().to_string())
 }
 
 fn warn(perf: &str) -> Option<String> {
-    Regex::new("([^;]*;)([^;]+)(.*)")
-        .unwrap()
+    WARN_RE
         .captures(perf)
         .and_then(|cap| cap.get(2))
         .map(|m| m.as_str().to_string())
 }
 
 fn crit(perf: &str) -> Option<String> {
-    Regex::new("([^;]*;)([^;]+;)([^;]+)(.*)")
-        .unwrap()
+    CRIT_RE
         .captures(perf)
         .and_then(|cap| cap.get(3))
         .map(|m| m.as_str().to_string())
 }
 
 fn min(perf: &str) -> Option<String> {
-    Regex::new("([^;]*;)([^;]+;)([^;]+;)([^;]+)(.*)")
-        .unwrap()
+    MIN_RE
         .captures(perf)
         .and_then(|cap| cap.get(4))
         .map(|m| m.as_str().to_string())
 }
 
 fn max(perf: &str) -> Option<String> {
-    Regex::new("([^;]*;)([^;]+;)([^;]+;)([^;]+;)([^;]+)(.*)")
-        .unwrap()
+    MAX_RE
         .captures(perf)
         .and_then(|cap| cap.get(5))
         .map(|m| m.as_str().to_string())
@@ -435,6 +451,67 @@ mod util_test {
         assert_eq!(label("label=foo"), Some("label".to_string()));
         assert_eq!(label("'split label'=foo"), Some("split label".to_string()));
         assert_eq!(label("'Load Average'=1"), Some("Load Average".to_string()));
+    }
+
+    #[test]
+    fn test_perf_value() {
+        assert_eq!(value("label=42"), Some(42.0));
+        assert_eq!(value("label=0.05%;70;90;;"), Some(0.05));
+        assert_eq!(value("rta=0.222ms;100;500;0;"), Some(0.222));
+        assert_eq!(value(""), None);
+    }
+
+    #[test]
+    fn test_perf_uom() {
+        assert_eq!(uom("label=0.05%;70;90;;"), Some("%".to_string()));
+        assert_eq!(uom("rta=0.222ms;100;500;0;"), Some("ms".to_string()));
+        assert_eq!(uom("label=42;10;20;;"), None);
+        assert_eq!(uom("label=42"), None);
+    }
+
+    #[test]
+    fn test_perf_warn() {
+        assert_eq!(warn("label=0.05%;70;90;;"), Some("70".to_string()));
+        assert_eq!(warn("label=42;10;20;0;100"), Some("10".to_string()));
+        assert_eq!(warn("label=42"), None);
+    }
+
+    #[test]
+    fn test_perf_crit() {
+        assert_eq!(crit("label=0.05%;70;90;;"), Some("90".to_string()));
+        assert_eq!(crit("label=42;10;20;0;100"), Some("20".to_string()));
+        assert_eq!(crit("label=42"), None);
+        assert_eq!(crit("label=42;10"), None);
+    }
+
+    #[test]
+    fn test_perf_min() {
+        assert_eq!(min("label=42;10;20;0;100"), Some("0".to_string()));
+        assert_eq!(min("label=42;10;20;;"), None);
+        assert_eq!(min("label=42"), None);
+    }
+
+    #[test]
+    fn test_perf_max() {
+        assert_eq!(max("label=42;10;20;0;100"), Some("100".to_string()));
+        assert_eq!(max("label=42;10;20;0;"), None);
+        assert_eq!(max("label=42"), None);
+    }
+
+    #[test]
+    fn test_extract_performance_data() {
+        assert_eq!(
+            extract_performance_data("OK - all good|rta=0.1ms;100;500;0;"),
+            Some("rta=0.1ms;100;500;0;".to_string())
+        );
+        assert_eq!(extract_performance_data("OK - no perfdata"), None);
+        assert_eq!(extract_performance_data(""), None);
+        // Usage output should not be treated as perfdata
+        assert_eq!(
+            extract_performance_data("Usage: check_http [-h|--help]"),
+            None
+        );
+        assert_eq!(extract_performance_data("usage: check_foo -H host"), None);
     }
 
     #[test]

@@ -1175,3 +1175,419 @@ fn test_yaml_args_dash_not_breaking_parsing() -> Result<(), Box<dyn std::error::
 
     Ok(())
 }
+
+/// When templates include both valid and invalid paths, the tool should still run the valid
+/// ones and report the missing ones in the templatesNotFound line.
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_mixed_found_and_not_found_templates() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    let file_1_path = dir.path().join("valid.yaml");
+    let mut file_1 = File::create(&file_1_path)?;
+    writeln!(file_1, "{}", SAMPLE_YAML_SINGLE_CHECK)?;
+
+    let mut cmd = Command::cargo_bin("xtender")?;
+    cmd.arg("--")
+        .arg(&file_1_path)
+        .arg("/nonexistent/missing.yaml");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "test_with_single_yaml_file,0,hello",
+        ))
+        .stdout(predicate::str::contains(format!(
+            "<!>templatesFound,{}",
+            file_1_path.to_str().unwrap()
+        )))
+        .stdout(predicate::str::contains(
+            "<!>templatesNotFound,/nonexistent/missing.yaml",
+        ));
+
+    drop(file_1);
+    dir.close()?;
+    Ok(())
+}
+
+/// Single command mode should not require templates.
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_single_command_with_timeout_option() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::cargo_bin("xtender")?;
+    cmd.arg("-c")
+        .arg("echo hello world")
+        .arg("-n")
+        .arg("hello_test")
+        .arg("-t")
+        .arg("10");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("hello_test,0,hello world"));
+
+    Ok(())
+}
+
+/// Sequential flag should produce the same results as parallel for a single check.
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_sequential_single_check() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    let file_1_path = dir.path().join("file_1.yaml");
+    let mut file_1 = File::create(&file_1_path)?;
+    writeln!(file_1, "{}", SAMPLE_YAML_SINGLE_CHECK)?;
+
+    let mut cmd = Command::cargo_bin("xtender")?;
+    cmd.arg("--sequential").arg("--").arg(file_1_path);
+
+    cmd.assert().success().stdout(predicate::str::contains(
+        "test_with_single_yaml_file,0,hello",
+    ));
+
+    drop(file_1);
+    dir.close()?;
+    Ok(())
+}
+
+/// Debug mode should output debug info to stderr.
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_debug_mode_writes_to_stderr() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempdir()?;
+    let file_1_path = dir.path().join("file_1.yaml");
+    let mut file_1 = File::create(&file_1_path)?;
+    writeln!(file_1, "{}", SAMPLE_YAML_SINGLE_CHECK)?;
+
+    let mut cmd = Command::cargo_bin("xtender")?;
+    cmd.arg("-d").arg("--").arg(file_1_path);
+
+    cmd.assert()
+        .success()
+        .stderr(predicate::str::contains("DEBUG"));
+
+    drop(file_1);
+    dir.close()?;
+    Ok(())
+}
+
+/// An invalid command in a template should not crash the CLI. The check should still appear
+/// in the output with an appropriate status.
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_invalid_command_among_valid_commands() -> Result<(), Box<dyn std::error::Error>> {
+    let yaml = r#"
+---
+- name: valid_check
+  command: |
+    echo valid_output
+- name: invalid_check
+  command: |
+    /nonexistent/binary
+...
+"#;
+
+    let dir = tempdir()?;
+    let file_1_path = dir.path().join("mixed.yaml");
+    let mut file_1 = File::create(&file_1_path)?;
+    writeln!(file_1, "{}", yaml)?;
+
+    let mut cmd = Command::cargo_bin("xtender")?;
+    cmd.arg("--").arg(file_1_path);
+
+    // Both checks should appear: the invalid one with status 3 (UNKNOWN), the valid one with 0.
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("valid_check,0,valid_output"))
+        .stdout(predicate::str::contains("invalid_check,3,"));
+
+    drop(file_1);
+    dir.close()?;
+    Ok(())
+}
+
+/// Verify that multi-line plugin output is preserved in the CSV longOutput field.
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_multiline_output_in_csv() -> Result<(), Box<dyn std::error::Error>> {
+    let yaml = r#"
+---
+- name: multiline_check
+  command: |
+    printf 'First line\nSecond line\nThird line'
+...
+"#;
+
+    let dir = tempdir()?;
+    let file_path = dir.path().join("multiline.yaml");
+    let mut file = File::create(&file_path)?;
+    writeln!(file, "{}", yaml)?;
+
+    let mut cmd = Command::cargo_bin("xtender")?;
+    cmd.arg("--").arg(file_path);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("multiline_check,0,First line"))
+        .stdout(predicate::str::contains("Second line\\nThird line"));
+
+    drop(file);
+    dir.close()?;
+    Ok(())
+}
+
+/// Checks with perfdata in the output should have it extracted to the performanceDataString column.
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_perfdata_extraction_in_cli() -> Result<(), Box<dyn std::error::Error>> {
+    let yaml = r#"
+---
+- name: perf_check
+  command: |
+    echo 'OK - all good|metric=42%;80;90;0;100'
+...
+"#;
+
+    let dir = tempdir()?;
+    let file_path = dir.path().join("perfdata.yaml");
+    let mut file = File::create(&file_path)?;
+    writeln!(file, "{}", yaml)?;
+
+    let mut cmd = Command::cargo_bin("xtender")?;
+    cmd.arg("--").arg(file_path);
+
+    cmd.assert().success().stdout(predicate::str::contains(
+        "perf_check,0,OK - all good,metric,42.0,%,80,90,0,100",
+    ));
+
+    drop(file);
+    dir.close()?;
+    Ok(())
+}
+
+/// Verify the opspack conversion handles JSON with multiple servicechecks.
+#[test]
+fn test_opspack_conversion_multiple_servicechecks() -> Result<(), Box<dyn std::error::Error>> {
+    let json = r#"{
+  "hosttemplate": [{"name": "Multi Checks", "description": "Multiple checks"}],
+  "servicecheck": [
+    {"name": "Check A", "args": "-H $HOST$", "plugin": {"name": "check_a"}},
+    {"name": "Check B", "args": "-H $HOST$", "plugin": {"name": "check_b"}}
+  ]
+}"#;
+
+    let dir = tempdir()?;
+    let file_path = dir.path().join("multi.json");
+    let mut file = File::create(&file_path)?;
+    writeln!(file, "{}", json)?;
+
+    let mut cmd = Command::cargo_bin("xtender")?;
+    cmd.arg("-o").arg(file_path);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("# name: Multi Checks"))
+        .stdout(predicate::str::contains("- name: Check A"))
+        .stdout(predicate::str::contains("check_a -H $HOST$"))
+        .stdout(predicate::str::contains("- name: Check B"))
+        .stdout(predicate::str::contains("check_b -H $HOST$"));
+
+    drop(file);
+    dir.close()?;
+    Ok(())
+}
+
+/// Verify that a check with a 0-second timeout fails immediately as UNKNOWN.
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_zero_second_timeout() -> Result<(), Box<dyn std::error::Error>> {
+    let yaml = r#"
+---
+- name: zero_timeout
+  timeout: 0
+  command: |
+    sleep 10
+...
+"#;
+
+    let dir = tempdir()?;
+    let file_path = dir.path().join("timeout.yaml");
+    let mut file = File::create(&file_path)?;
+    writeln!(file, "{}", yaml)?;
+
+    let mut cmd = Command::cargo_bin("xtender")?;
+    cmd.arg("--").arg(file_path);
+
+    cmd.assert().success().stdout(predicate::str::contains(
+        "zero_timeout,3,UNKNOWN: Timed out after 0 seconds",
+    ));
+
+    drop(file);
+    dir.close()?;
+    Ok(())
+}
+
+/// Verify that the --allow-empty-vars flag is reflected in variable output when vars are in the name.
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_allow_empty_vars_in_check_name() -> Result<(), Box<dyn std::error::Error>> {
+    let yaml = r#"
+---
+- name: check_$NONEXISTENT_VAR_12345$
+  command: |
+    echo hello
+...
+"#;
+
+    let dir = tempdir()?;
+    let file_path = dir.path().join("name_var.yaml");
+    let mut file = File::create(&file_path)?;
+    writeln!(file, "{}", yaml)?;
+
+    let mut cmd = Command::cargo_bin("xtender")?;
+    cmd.arg("--allow-empty-vars").arg("--").arg(file_path);
+
+    // With allow-empty-vars, the missing variable should be replaced with empty string
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("check_,0,hello"));
+
+    drop(file);
+    dir.close()?;
+    Ok(())
+}
+
+/// Anything that is not a bare template name is a path chosen by the operator and is
+/// read as given, including paths through ".." and files without a YAML extension.
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_template_paths_are_read_as_given() {
+    let dir = tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("subdir")).unwrap();
+    std::fs::write(
+        dir.path().join("plain.txt"),
+        "- name: plain\n  command: echo hello\n",
+    )
+    .unwrap();
+
+    for path in [
+        dir.path().join("subdir").join("..").join("plain.txt"),
+        dir.path().join("plain.txt"),
+    ] {
+        let output = Command::cargo_bin("xtender")
+            .unwrap()
+            .arg("--")
+            .arg(&path)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success(), "{}", path.display());
+        assert!(stdout.contains("\nplain,0,hello,"), "{stdout}");
+    }
+}
+
+/// A template that is neither a readable path nor a known name is reported as not found.
+#[test]
+fn test_missing_template_is_reported() {
+    let output = Command::cargo_bin("xtender")
+        .unwrap()
+        .arg("--")
+        .arg("no_such_template_xyz")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stdout.contains("<!>templatesNotFound,no_such_template_xyz"),
+        "{stdout}"
+    );
+    assert!(stderr.contains("no_such_template_xyz"), "{stderr}");
+}
+
+/// When --allow-empty-vars is active and a variable is missing, stderr should contain
+/// a warning about the substitution, without needing --debug.
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_allow_empty_vars_emits_warning() {
+    let dir = tempdir().unwrap();
+    let file_path = dir.path().join("warn_test.yaml");
+    let mut file = File::create(&file_path).unwrap();
+    writeln!(
+        file,
+        "---\n- name: warn_check\n  command: echo $DEFINITELY_MISSING_VAR_12345$"
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("xtender").unwrap();
+    cmd.arg("--allow-empty-vars").arg("--").arg(&file_path);
+
+    cmd.assert().success().stderr(predicate::str::contains(
+        "Variable 'DEFINITELY_MISSING_VAR_12345' not found, substituting empty string",
+    ));
+
+    drop(file);
+    dir.close().unwrap();
+}
+
+/// Run xtender on a template written to a temp file and return the process output.
+fn run_template(template: &str) -> std::process::Output {
+    let dir = tempdir().unwrap();
+    let file_path = dir.path().join("template.yaml");
+    std::fs::write(&file_path, template).unwrap();
+    Command::cargo_bin("xtender")
+        .unwrap()
+        .arg("--")
+        .arg(&file_path)
+        .output()
+        .unwrap()
+}
+
+/// A malformed template must abort the run without writing any CSV, so that a
+/// partial dataview never reaches the Toolkit plugin.
+#[test]
+fn test_malformed_templates_fail_without_output() {
+    let cases = [
+        ("invalid syntax", "- name: a\n  command: [unclosed\n"),
+        ("check is not a mapping", "- just a string\n"),
+        ("missing name", "- command: echo hi\n"),
+        ("missing command", "- name: a\n"),
+        ("non-string name", "- name: [a, b]\n  command: echo hi\n"),
+        (
+            "negative timeout",
+            "- name: a\n  command: echo hi\n  timeout: -1\n",
+        ),
+        (
+            "text timeout",
+            "- name: a\n  command: echo hi\n  timeout: soon\n",
+        ),
+        (
+            "fractional timeout",
+            "- name: a\n  command: echo hi\n  timeout: 1.5\n",
+        ),
+    ];
+
+    for (case, template) in cases {
+        let output = run_template(template);
+        assert!(!output.status.success(), "{case}: expected failure");
+        assert!(
+            output.stdout.is_empty(),
+            "{case}: expected no stdout, got {:?}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+    }
+}
+
+/// Template values are trimmed, quoted strings keep their colons, and an
+/// explicit timeout overrides the default.
+#[test]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_template_values_are_parsed() {
+    let template = "---\n- name: '  spaced  '\n  command: \"echo a:b\"\n  timeout: 0\n  extra: ignored\n- name: block\n  command: |\n    echo block\n";
+    let output = run_template(template);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        stdout.contains("\nspaced,3,UNKNOWN: Timed out after 0 seconds"),
+        "{stdout}"
+    );
+    assert!(stdout.contains("\nblock,0,block,"), "{stdout}");
+}

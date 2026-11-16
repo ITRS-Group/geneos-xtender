@@ -1,7 +1,7 @@
 use serde_json;
-use serde_yml;
+use serde_saphyr::LitString;
 
-use crate::check::{CheckBuilder, Checks};
+use crate::check::{Check, CheckBuilder, Checks};
 
 #[derive(Clone, Debug, Default, serde::Serialize, PartialEq)]
 pub struct Opspack {
@@ -50,6 +50,8 @@ impl Opspack {
         }
     }
 
+    // Malformed Opspack JSON panics: this is the offline -o converter, and failing loudly beats
+    // writing a broken template.
     pub fn from_json(json: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let v: serde_json::Value = serde_json::from_str(json).unwrap();
         let mut checks: Option<Checks> = None;
@@ -88,43 +90,41 @@ impl Opspack {
             return Ok("".to_string());
         }
 
-        let mut output = serde_yml::to_string(&self)?;
-        output = output
-            .replace("name:", "# name:")
-            .replace("description:", "# description:");
-
-        let mut checks_yaml = serde_yml::to_string(&self.checks)?;
-
-        // Sometimes, checks get wrapped in single quotes. This means that all single quotes
-        // already in the command double. We need to remove the surrounding single quotes as well
-        // as all the double single quotes.
-        //
-        // The wrapping seems to be caused by a Nagios range containing : in the command.
-
-        let some_line_starts_and_ends_with_single_quote =
-            regex::Regex::new(r"command: '[^\n]+['+\n|'+$]")?;
-        if some_line_starts_and_ends_with_single_quote.is_match(&checks_yaml) {
-            let mut lines = checks_yaml
-                .split('\n')
-                .map(|l| l.to_string())
-                .collect::<Vec<String>>();
-            for line in &mut lines {
-                if line.starts_with("  command: '") && line.ends_with('\'') {
-                    line.replace_range(11..12, "");
-                    line.replace_range(line.len() - 1..line.len(), "");
-                }
-                *line = line.replace("''", "'");
-            }
-
-            checks_yaml = lines.join("\n");
+        let mut output = String::new();
+        if let Some(name) = &self.name {
+            output.push_str(&format!("# name: {}\n", name));
+        }
+        if let Some(description) = &self.description {
+            output.push_str(&format!("# description: {}\n", description));
         }
 
-        output.push_str(&checks_yaml);
-        output = output.replace("command:", "command: |\n   ");
-        output = output.replace("\n  timeout: 5", "");
-        output.trim_end().to_string();
+        if let Some(checks) = &self.checks {
+            // Commands are written as literal blocks so that quotes, colons and other YAML
+            // indicators in plugin arguments are kept verbatim. The trailing newline gives a
+            // plain `|` block instead of `|-`.
+            let default_timeout = Check::default().timeout();
+            let entries: Vec<TemplateEntry> = checks
+                .iter()
+                .map(|c| TemplateEntry {
+                    name: c.name(),
+                    command: LitString(format!("{}\n", c.command())),
+                    timeout: (c.timeout() != default_timeout).then_some(c.timeout()),
+                })
+                .collect();
+            output.push_str(&serde_saphyr::to_string(&entries)?);
+        }
+
         Ok(output)
     }
+}
+
+/// A check as written to an Xtender template. The default timeout is left out.
+#[derive(serde::Serialize)]
+struct TemplateEntry<'a> {
+    name: &'a str,
+    command: LitString,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timeout: Option<u64>,
 }
 
 #[cfg(test)]
@@ -397,11 +397,116 @@ mod tests {
     }
 
     #[test]
+    fn test_template_round_trips_yaml_indicators() {
+        let checks = vec![CheckBuilder::new()
+            .name("Ping: gateway - #1")
+            .command("check_x -a 'it''s' -w 10: --label \"command: x\"")
+            .build_raw()];
+        let opspack = Opspack::new("Pack", "Desc", Some(checks));
+
+        let template = opspack.to_xtender_template().unwrap();
+        let parsed: Vec<std::collections::BTreeMap<String, String>> =
+            serde_saphyr::from_str(&template).unwrap();
+
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0]["name"], "Ping: gateway - #1");
+        assert_eq!(
+            parsed[0]["command"].trim_end(),
+            "check_x -a 'it''s' -w 10: --label \"command: x\""
+        );
+    }
+
+    #[test]
+    fn test_template_keeps_non_default_timeout() {
+        let checks = vec![CheckBuilder::new()
+            .name("Slow")
+            .command("check_slow")
+            .timeout(30)
+            .build_raw()];
+        let opspack = Opspack::new("Pack", "Desc", Some(checks));
+
+        let template = opspack.to_xtender_template().unwrap();
+        let parsed: Vec<std::collections::BTreeMap<String, String>> =
+            serde_saphyr::from_str(&template).unwrap();
+
+        assert_eq!(parsed[0]["timeout"], "30");
+    }
+
+    #[test]
+    fn test_template_never_contains_secret_command() {
+        let checks = vec![Check::new(
+            "Login",
+            "check_login -p ***",
+            Some("check_login -p hunter2".to_string()),
+            5,
+        )];
+        let opspack = Opspack::new("Pack", "Desc", Some(checks));
+
+        let template = opspack.to_xtender_template().unwrap();
+
+        assert!(!template.contains("hunter2"), "{template}");
+        assert!(template.contains("check_login -p ***"), "{template}");
+    }
+
+    #[test]
     fn test_empty_opspack() {
         let json = "{}";
         let opspack = Opspack::from_json(json).unwrap();
         let template = opspack.to_xtender_template().unwrap();
         let expected_template = "";
         assert_eq!(template, expected_template);
+    }
+
+    #[test]
+    fn test_harmonize_opspack_variables_no_vars() {
+        let result = harmonize_opspack_variables("check_http -H localhost").unwrap();
+        assert_eq!(result, "check_http -H localhost");
+    }
+
+    #[test]
+    fn test_harmonize_opspack_variables_dollar_vars() {
+        let result = harmonize_opspack_variables("check_http -H $HOSTADDRESS$").unwrap();
+        assert_eq!(result, "check_http -H $HOSTADDRESS$");
+    }
+
+    #[test]
+    fn test_harmonize_opspack_variables_percent_vars() {
+        let result = harmonize_opspack_variables("check_http -u %URL:1%").unwrap();
+        assert_eq!(result, "check_http -u $URL_1$");
+    }
+
+    #[test]
+    fn test_harmonize_opspack_variables_colon_in_dollar_var() {
+        let result = harmonize_opspack_variables("-H $HOSTADDRESS:1$").unwrap();
+        assert_eq!(result, "-H $HOSTADDRESS_1$");
+    }
+
+    #[test]
+    fn test_harmonize_opspack_variables_mixed() {
+        let result =
+            harmonize_opspack_variables("-H $HOSTADDRESS:1$ -u %URL:2% -p $PASS$").unwrap();
+        assert_eq!(result, "-H $HOSTADDRESS_1$ -u $URL_2$ -p $PASS$");
+    }
+
+    #[test]
+    fn test_from_json_with_single_servicecheck() {
+        let json = r#"{
+  "servicecheck": [
+    {"name": "Single Check", "args": "-H localhost", "plugin": {"name": "check_single"}}
+  ]
+}"#;
+        let opspack = Opspack::from_json(json).unwrap();
+        assert_eq!(opspack.name, None);
+        assert_eq!(opspack.checks.as_ref().unwrap().len(), 1);
+        assert_eq!(opspack.checks.as_ref().unwrap()[0].name(), "Single Check");
+    }
+
+    #[test]
+    fn test_from_json_no_servicechecks_key() {
+        let json = r#"{"hosttemplate": [{"name": "Empty", "description": "No checks"}]}"#;
+        let opspack = Opspack::from_json(json).unwrap();
+        // hosttemplate name is extracted even without servicechecks
+        assert_eq!(opspack.name, Some("Empty".to_string()));
+        assert_eq!(opspack.checks, None);
     }
 }

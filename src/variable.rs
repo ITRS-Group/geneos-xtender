@@ -1,6 +1,6 @@
 use hex::decode;
 use lazy_static::lazy_static;
-use log::debug;
+use log::warn;
 use once_cell::sync::OnceCell;
 use openssl::symm::{Cipher, Crypter, Mode};
 use serde::Serialize;
@@ -9,6 +9,7 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::RwLock;
 
+/// Set by --allow-empty-vars: a missing variable becomes an empty string, with a warning.
 pub static ALLOW_EMPTY_VARS: OnceCell<bool> = OnceCell::new();
 
 lazy_static! {
@@ -123,6 +124,10 @@ impl FromStr for Variable {
                 Ok(Self::Found(s.to_string(), Some(value), None))
             }
         } else if matches!(ALLOW_EMPTY_VARS.get(), Some(true)) {
+            warn!(
+                "Variable '{}' not found, substituting empty string (--allow-empty-vars)",
+                s
+            );
             Ok(Self::Found(s.to_string(), Some(String::new()), None))
         } else {
             Ok(Self::NotFound(s.to_string()))
@@ -268,9 +273,10 @@ impl FromStr for VariableString {
     }
 }
 
+/// Pre-derived key and IV for AES-256-CBC. A `salt=` line in the key file is accepted and
+/// ignored.
 #[derive(Debug)]
 pub struct KeyFile {
-    _salt: String,
     key: String,
     iv: String,
 }
@@ -284,7 +290,6 @@ pub struct KeyFile {
 pub enum KeyFileParseError {
     InvalidLine(String),
     MissingKey,
-    MissingSalt,
     MissingIv,
     FileTooLong(usize),
 }
@@ -295,9 +300,6 @@ impl fmt::Display for KeyFileParseError {
             KeyFileParseError::InvalidLine(line) => write!(f, "Invalid line: {}", line),
             KeyFileParseError::MissingKey => {
                 write!(f, "Missing key, no line starting with \"key=\" found")
-            }
-            KeyFileParseError::MissingSalt => {
-                write!(f, "Missing salt, no line starting with \"salt=\" found")
             }
             KeyFileParseError::MissingIv => {
                 write!(f, "Missing iv, no line starting with \"iv =\" found")
@@ -323,13 +325,12 @@ impl FromStr for KeyFile {
             return Err(KeyFileParseError::FileTooLong(number_of_lines));
         }
 
-        let mut salt = None;
         let mut key = None;
         let mut iv = None;
 
         for line in s.trim_end_matches('\n').lines() {
-            if let Some(salt_val) = line.strip_prefix("salt=") {
-                salt = Some(salt_val.to_string());
+            if line.starts_with("salt=") {
+                // Salt lines are tolerated but ignored (key+IV are pre-derived)
             } else if let Some(key_val) = line.strip_prefix("key=") {
                 key = Some(key_val.to_string());
             } else if let Some(iv_val) = line.strip_prefix("iv =") {
@@ -337,11 +338,6 @@ impl FromStr for KeyFile {
             } else {
                 return Err(KeyFileParseError::InvalidLine(line.to_string()));
             }
-        }
-
-        if salt.is_none() {
-            //return Err(KeyFileParseError::MissingSalt);
-            debug!("The key file is missing the salt, this is not a problem.")
         }
 
         if key.is_none() {
@@ -353,7 +349,6 @@ impl FromStr for KeyFile {
         }
 
         Ok(Self {
-            _salt: salt.unwrap_or_default(),
             key: key.unwrap(),
             iv: iv.unwrap(),
         })
@@ -370,6 +365,8 @@ fn potentially_encrypted(s: &str) -> bool {
     maybe_hex.chars().all(|c| c.is_ascii_hexdigit())
 }
 
+// Decryption failures panic: a check run without its real credential would report a
+// misleading result, so producing no dataview at all is safer.
 fn decrypt_str(s: &str, k: &KeyFile) -> Result<String, openssl::error::ErrorStack> {
     let encrypted_data = decode(&s[6..]).unwrap();
 
@@ -465,7 +462,6 @@ iv =472A3557ADDD2525AD4E555738636A67
 
         let valid_keyfile = KeyFile::from_str(valid_string).unwrap();
 
-        assert_eq!(valid_keyfile._salt, "89A6A795C9CCECB5");
         assert_eq!(
             valid_keyfile.key,
             "26D6EDD53A0AFA8FA1AA3FBCD2FFF2A0BF4809A4E04511F629FC732C2A42A8FC"

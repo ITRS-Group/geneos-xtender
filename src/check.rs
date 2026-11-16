@@ -74,6 +74,15 @@ impl Check {
         &self.name
     }
 
+    /// The command with encrypted variables obfuscated, safe to show or write out.
+    pub fn command(&self) -> &str {
+        &self.command
+    }
+
+    pub fn timeout(&self) -> u64 {
+        self.timeout
+    }
+
     pub fn secret_command(&self) -> Option<String> {
         self.secret_command.clone()
     }
@@ -99,6 +108,8 @@ impl Check {
         }
     }
 
+    // Mismatched or unsupported ranges panic: they are template authoring errors, and expanding
+    // them anyway would emit checks with unresolved !!A:x..y!! tokens.
     pub fn expand_ranges(self) -> Checks {
         let mut checks = Checks::new();
 
@@ -182,40 +193,41 @@ impl Check {
         let mut output = String::new();
         let mut status_code = 3;
 
+        // A failure to wait on or kill the process reports UNKNOWN (3) for this check instead of
+        // aborting the whole batch.
         match child {
             Ok(ref mut child_proc) => {
-                match child_proc.wait_timeout(secs).unwrap() {
-                    Some(status) => {
+                match child_proc.wait_timeout(secs) {
+                    Ok(Some(status)) => {
                         execution_time = start_time.elapsed();
                         if let Some(code) = status.code() {
                             status_code = code;
-                            child_proc
-                                .stdout
-                                .as_mut()
-                                .unwrap()
-                                .read_to_string(&mut output)
-                                .unwrap();
+                            if let Some(stdout) = child_proc.stdout.as_mut() {
+                                let _ = stdout.read_to_string(&mut output);
+                            }
                         }
                     }
-                    None => {
-                        child_proc.kill().unwrap();
+                    Ok(None) => {
+                        let _ = child_proc.kill();
                         execution_time = start_time.elapsed();
                         let timeout_msg = match secs.as_secs() {
                             1 => TimeoutMessage::Single,
                             _ => TimeoutMessage::Multi(secs.as_secs()),
                         };
-                        let _kill_status = child_proc.wait().unwrap();
-                        child_proc
-                            .stderr
-                            .as_mut()
-                            .unwrap()
-                            .read_to_string(&mut output)
-                            .unwrap();
+                        let _ = child_proc.wait();
+                        if let Some(stderr) = child_proc.stderr.as_mut() {
+                            let _ = stderr.read_to_string(&mut output);
+                        }
                         return maybe_secret_data
                             .status(3)
                             .short_output(&timeout_msg.to_string())
                             .with_execution_time(execution_time)
                             .build();
+                    }
+                    Err(e) => {
+                        error!("Failed to wait on child process: {}", e);
+                        execution_time = start_time.elapsed();
+                        output = format!("UNKNOWN: Process wait error: {}", e);
                     }
                 };
             }
@@ -445,5 +457,188 @@ mod check_test {
         assert_eq!(check.command, "echo $MISSING_ENV_VAR$");
 
         Ok(())
+    }
+
+    #[test]
+    fn test_check_builder_defaults() {
+        let check = CheckBuilder::new().build_raw();
+        assert_eq!(check.name, "");
+        assert_eq!(check.command, "");
+        // Default timeout from CheckBuilder is 5 (set in Default impl)
+        assert_eq!(check.timeout, 5);
+        assert_eq!(check.secret_command, None);
+    }
+
+    #[test]
+    fn test_check_builder_with_timeout() -> Result<(), Box<dyn std::error::Error>> {
+        let check = CheckBuilder::new()
+            .name("test")
+            .command("echo test")
+            .timeout(30)
+            .build()?;
+
+        assert_eq!(check.timeout, 30);
+        Ok(())
+    }
+
+    #[test]
+    fn test_check_default_timeout() {
+        let check = Check::default();
+        assert_eq!(check.timeout, 5);
+    }
+
+    #[test]
+    fn test_expand_ranges_no_range() {
+        let check = Check::new("simple", "echo hello", None, 5);
+        let expanded = check.expand_ranges();
+        assert_eq!(expanded.len(), 1);
+        assert_eq!(expanded[0].name(), "simple");
+    }
+
+    #[test]
+    fn test_expand_ranges_single() {
+        let check = Check::new("test_!!A:1..3!!", "echo !!A:1..3!!", None, 5);
+        let expanded = check.expand_ranges();
+        assert_eq!(expanded.len(), 3);
+        assert_eq!(expanded[0].name(), "test_1");
+        assert_eq!(expanded[1].name(), "test_2");
+        assert_eq!(expanded[2].name(), "test_3");
+        assert_eq!(expanded[0].secret_command_or_command(), "echo 1");
+        assert_eq!(expanded[1].secret_command_or_command(), "echo 2");
+        assert_eq!(expanded[2].secret_command_or_command(), "echo 3");
+    }
+
+    #[test]
+    fn test_expand_ranges_double() {
+        let check = Check::new(
+            "test_!!A:1..2!!_!!B:3..4!!",
+            "echo !!A:1..2!! !!B:3..4!!",
+            None,
+            5,
+        );
+        let expanded = check.expand_ranges();
+        assert_eq!(expanded.len(), 4);
+        assert_eq!(expanded[0].name(), "test_1_3");
+        assert_eq!(expanded[1].name(), "test_1_4");
+        assert_eq!(expanded[2].name(), "test_2_3");
+        assert_eq!(expanded[3].name(), "test_2_4");
+    }
+
+    #[test]
+    #[should_panic(expected = "Ranges in name and command do not match")]
+    fn test_expand_ranges_mismatched_panics() {
+        let check = Check::new("test_!!A:1..3!!", "echo !!B:1..3!!", None, 5);
+        let _ = check.expand_ranges();
+    }
+
+    #[test]
+    fn test_expand_ranges_preserves_secret_command() {
+        let check = Check::new(
+            "test_!!A:1..2!!",
+            "echo !!A:1..2!!",
+            Some("secret !!A:1..2!!".to_string()),
+            5,
+        );
+        let expanded = check.expand_ranges();
+        assert_eq!(expanded.len(), 2);
+        assert_eq!(expanded[0].secret_command(), Some("secret 1".to_string()));
+        assert_eq!(expanded[1].secret_command(), Some("secret 2".to_string()));
+    }
+
+    #[test]
+    fn test_total_time_from_timeouts() {
+        let checks = vec![
+            Check::new("a", "echo a", None, 5),
+            Check::new("b", "echo b", None, 10),
+            Check::new("c", "echo c", None, 3),
+        ];
+        assert_eq!(
+            checks.total_time_from_timeouts(),
+            std::time::Duration::from_secs(18)
+        );
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn test_run_all_checks_sequentially() -> Result<(), Box<dyn std::error::Error>> {
+        let checks = vec![
+            CheckBuilder::new()
+                .name("Seq check 1")
+                .command("echo seq_hello")
+                .build()?,
+            CheckBuilder::new()
+                .name("Seq check 2")
+                .command("echo seq_world")
+                .build()?,
+        ];
+
+        let results = run_all_checks_sequentially(checks)?;
+        assert_eq!(results.0.len(), 2);
+        assert_eq!(results.0[0].short_output().trim(), "seq_hello");
+        assert_eq!(results.0[1].short_output().trim(), "seq_world");
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn test_check_run_command_not_found() {
+        let check = Check::new("Not Found", "/nonexistent/binary/foobar", None, 5);
+        let result = check.run();
+        // The process should return UNKNOWN (3) for a non-existent command, not crash
+        assert_eq!(result.status(), Some(3));
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn test_check_run_command_with_stderr() {
+        let check = Check::new("Stderr Test", "ls /nonexistent_path_xyz", None, 5);
+        let result = check.run();
+        // ls on a non-existent path exits non-zero
+        assert_ne!(result.status(), Some(0));
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn test_check_run_empty_output() {
+        let check = Check::new("Empty", "true", None, 5);
+        let result = check.run();
+        assert_eq!(result.status(), Some(0));
+        assert_eq!(result.short_output(), "");
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn test_check_run_with_exit_code_1() {
+        let check = Check::new("Warning", "sh -c 'echo WARNING && exit 1'", None, 5);
+        let result = check.run();
+        assert_eq!(result.status(), Some(1));
+        assert_eq!(result.short_output(), "WARNING");
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn test_check_run_with_perfdata_output() {
+        let check = Check::new(
+            "Perf Check",
+            "echo 'OK - all good|metric=42%;80;90;0;100'",
+            None,
+            5,
+        );
+        let result = check.run();
+        assert_eq!(result.status(), Some(0));
+        assert_eq!(result.short_output(), "OK - all good");
+        assert_eq!(result.performance_data(), "metric=42%;80;90;0;100");
+    }
+
+    #[test]
+    fn test_secret_command_or_command_returns_command_when_no_secret() {
+        let check = Check::new("test", "echo hello", None, 5);
+        assert_eq!(check.secret_command_or_command(), "echo hello");
+    }
+
+    #[test]
+    fn test_secret_command_or_command_returns_secret_when_present() {
+        let check = Check::new("test", "echo ***", Some("echo secret".to_string()), 5);
+        assert_eq!(check.secret_command_or_command(), "echo secret");
     }
 }
