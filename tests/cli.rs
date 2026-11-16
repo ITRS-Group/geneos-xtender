@@ -54,7 +54,7 @@ const SAMPLE_YAML_ENCRYPTED_VAR: &str = r#"
 ---
 - name: test_encrypted_variable
   command: |
-    stat $ENCRYPTED_TEST_VAR$
+    true $ENCRYPTED_TEST_VAR$
 ...
 "#;
 const SAMPLE_YAML_EXITS_WITH_2: &str = r#"
@@ -758,7 +758,7 @@ fn test_output_multiple_missing_templates() -> Result<(), Box<dyn std::error::Er
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn test_output_not_containing_secret_var() -> Result<(), Box<dyn std::error::Error>> {
     unsafe {
-        std::env::set_var("ENCRYPTED_VAR_EXAMPLE1", ENCRYPTED_VAR_EXAMPLE1);
+        std::env::set_var("ENCRYPTED_TEST_VAR", ENCRYPTED_VAR_EXAMPLE1);
     }
 
     let dir = tempdir()?;
@@ -780,15 +780,20 @@ fn test_output_not_containing_secret_var() -> Result<(), Box<dyn std::error::Err
         .arg("--")
         .arg(file_1_path);
 
+    // The decrypted value is 12345. Debug logging is on, so stderr must show the check
+    // being processed without the value.
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("12345").not());
+        .stdout(predicate::str::contains(",ENCRYPTED_TEST_VAR=***,"))
+        .stdout(predicate::str::contains("12345").not())
+        .stderr(predicate::str::contains("Processing check"))
+        .stderr(predicate::str::contains("12345").not());
 
     drop(file_1);
     dir.close()?;
 
     unsafe {
-        std::env::remove_var("ENCRYPTED_VAR_EXAMPLE1");
+        std::env::remove_var("ENCRYPTED_TEST_VAR");
     }
 
     Ok(())

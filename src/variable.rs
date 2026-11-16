@@ -46,10 +46,25 @@ impl VariablesExt for Variables {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Serialize)]
 pub enum Variable {
     Found(VariableName, VariableValue, SecretVariableValue),
     NotFound(VariableName),
+}
+
+/// Written by hand so that debug logging never shows a decrypted value.
+impl fmt::Debug for Variable {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Variable::Found(name, value, secret) => f
+                .debug_tuple("Found")
+                .field(name)
+                .field(value)
+                .field(&secret.as_ref().map(|_| "***"))
+                .finish(),
+            Variable::NotFound(name) => f.debug_tuple("NotFound").field(name).finish(),
+        }
+    }
 }
 
 #[derive(Debug)]
