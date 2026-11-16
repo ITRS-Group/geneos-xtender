@@ -1568,6 +1568,9 @@ fn test_malformed_templates_fail_without_output() {
             "fractional timeout",
             "- name: a\n  command: echo hi\n  timeout: 1.5\n",
         ),
+        ("empty file", ""),
+        ("only a comment", "# no checks yet\n"),
+        ("empty sequence", "[]\n"),
     ];
 
     for (case, template) in cases {
@@ -1586,12 +1589,13 @@ fn test_malformed_templates_fail_without_output() {
 #[test]
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn test_template_values_are_parsed() {
-    let template = "---\n- name: '  spaced  '\n  command: \"echo a:b\"\n  timeout: 0\n  extra: ignored\n- name: block\n  command: |\n    echo block\n";
+    let template = "---\n- name: '  spaced  '\n  command: \"echo a:b\"\n  extra: ignored\n- name: slow\n  command: sleep 3\n  timeout: 1\n- name: block\n  command: |\n    echo block\n";
     let output = run_template(template);
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("\nspaced,0,a:b,"), "{stdout}");
     assert!(
-        stdout.contains("\nspaced,3,UNKNOWN: Timed out after 0 seconds"),
+        stdout.contains("\nslow,3,UNKNOWN: Timed out after 1 second,"),
         "{stdout}"
     );
     assert!(stdout.contains("\nblock,0,block,"), "{stdout}");

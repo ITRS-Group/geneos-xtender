@@ -265,11 +265,14 @@ async fn main() {
     if let Some(template_names) = parsed_args.templates.clone() {
         parsed_templates = ParsedTemplates::from_template_names(&template_names);
 
-        // A malformed template aborts the run instead of skipping entries: partial CSV
-        // output would give the Toolkit plugin a dataview with checks silently missing.
+        // A malformed or empty template aborts the run instead of skipping entries: partial
+        // CSV output would give the Toolkit plugin a dataview with checks silently missing.
         for template in &parsed_templates.strings {
             let template_checks: Vec<TemplateCheck> = serde_saphyr::from_str(template)
                 .unwrap_or_else(|e| panic!("{}\n{}", e, INVALID_TEMPLATE_ERROR_MSG));
+            if template_checks.is_empty() {
+                panic!("The template has no checks.\n{}", INVALID_TEMPLATE_ERROR_MSG);
+            }
 
             for template_check in template_checks {
                 let c = CheckBuilder::new()
