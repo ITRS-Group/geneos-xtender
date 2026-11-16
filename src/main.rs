@@ -371,7 +371,7 @@ fn find_and_read_template(template: &str) -> std::io::Result<String> {
             for extension in ["yaml", "yml"] {
                 let path = format!("{}{}.{}", dir, template, extension);
                 if let Ok(template_string) = fs::read_to_string(&path) {
-                    debug!("Found template file: {}", &path);
+                    debug!("Found template file: {}", path);
                     return Ok(template_string);
                 }
             }

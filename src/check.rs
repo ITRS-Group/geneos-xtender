@@ -1,17 +1,45 @@
 use crate::range::{Range, Ranges, RangesExt};
 use crate::result::{CheckResult, CheckResultBuilder, CheckResults};
 use crate::variable::{VariableError, VariableString, Variables};
-use log::{debug, error};
+use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
 use shellwords;
 use std::fmt;
-use std::io::Read;
+use std::io::{self, Read};
 use std::process::{Command, Stdio};
 use std::str::FromStr;
-use std::sync::mpsc;
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use wait_timeout::ChildExt;
+
+/// Plugin output beyond this many bytes is read and discarded, so a plugin that floods
+/// stdout cannot exhaust memory.
+const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
+
+/// Read `reader` to the end, keeping the first `limit` bytes in `captured`. Returns whether
+/// anything was discarded.
+fn read_capped(
+    reader: &mut impl Read,
+    captured: &Mutex<Vec<u8>>,
+    limit: usize,
+) -> io::Result<bool> {
+    let mut chunk = [0u8; 8192];
+    let mut truncated = false;
+    loop {
+        let n = match reader.read(&mut chunk) {
+            Ok(0) => return Ok(truncated),
+            Ok(n) => n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
+        let mut buffer = captured.lock().unwrap_or_else(|e| e.into_inner());
+        let room = limit.saturating_sub(buffer.len());
+        buffer.extend_from_slice(&chunk[..n.min(room)]);
+        truncated |= n > room;
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Check {
@@ -206,13 +234,14 @@ impl Check {
         };
 
         // Read stdout while the plugin runs, so output larger than the pipe buffer cannot
-        // block it. The reader is abandoned on timeout: a grandchild that inherited stdout
-        // may hold the pipe open long after the plugin itself is gone.
-        let (stdout_tx, stdout_rx) = mpsc::channel();
+        // block it. The reader is not waited for past the timeout: a background process
+        // that inherited stdout may hold the pipe open long after the plugin has exited.
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let (done_tx, done_rx) = mpsc::channel();
         if let Some(mut stdout) = child.stdout.take() {
+            let captured = Arc::clone(&captured);
             thread::spawn(move || {
-                let mut buffer = Vec::new();
-                let _ = stdout_tx.send(stdout.read_to_end(&mut buffer).map(|_| buffer));
+                let _ = done_tx.send(read_capped(&mut stdout, &captured, MAX_OUTPUT_BYTES));
             });
         }
 
@@ -236,19 +265,43 @@ impl Check {
         let execution_time = match child.wait_timeout(secs) {
             Ok(Some(status)) => {
                 let execution_time = start_time.elapsed();
-                let remaining = secs.saturating_sub(execution_time);
-                match stdout_rx.recv_timeout(remaining) {
-                    Ok(Ok(buffer)) => {
+                // A plugin that exits just before its timeout still gets a moment for the
+                // reader to collect what it wrote.
+                let remaining = secs
+                    .saturating_sub(execution_time)
+                    .max(Duration::from_millis(100));
+                let read_result = match done_rx.recv_timeout(remaining) {
+                    Ok(Ok(truncated)) => {
+                        if truncated {
+                            warn!(
+                                "Output of check '{}' exceeded {} bytes and was truncated",
+                                self.name, MAX_OUTPUT_BYTES
+                            );
+                        }
+                        Ok(())
+                    }
+                    Ok(Err(e)) => Err(e),
+                    Err(RecvTimeoutError::Timeout) => {
+                        debug!(
+                            "A process started by check '{}' still holds its output open; using the output read so far",
+                            self.name
+                        );
+                        Ok(())
+                    }
+                    Err(RecvTimeoutError::Disconnected) => Ok(()),
+                };
+                match read_result {
+                    Ok(()) => {
                         if let Some(code) = status.code() {
                             status_code = code;
+                            let buffer = captured.lock().unwrap_or_else(|e| e.into_inner());
                             output = String::from_utf8_lossy(&buffer).into_owned();
                         }
                     }
-                    Ok(Err(e)) => {
+                    Err(e) => {
                         error!("Failed to read the output of the child process: {}", e);
                         output = format!("UNKNOWN: Process read error: {}", e);
                     }
-                    Err(_) => return timeout_result(start_time.elapsed()),
                 }
                 execution_time
             }
@@ -683,6 +736,34 @@ mod check_test {
             "took {:?}",
             started.elapsed()
         );
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn test_check_result_is_kept_when_a_child_process_holds_stdout() {
+        // The shell exits at once, but the background sleep keeps stdout open.
+        let started = std::time::Instant::now();
+        let result = Check::new("Detached", "sh -c 'sleep 5 & echo ok'", None, 1).run();
+        assert_eq!(result.status(), Some(0));
+        assert_eq!(result.short_output(), "ok");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(3),
+            "took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn test_check_output_is_capped_and_the_rest_drained() {
+        // One line twice the cap. The plugin can only exit 0 if all of it is read.
+        let command = format!(
+            "sh -c 'head -c {} /dev/zero | tr \\\\0 a'",
+            2 * MAX_OUTPUT_BYTES
+        );
+        let result = Check::new("Flood", &command, None, 10).run();
+        assert_eq!(result.status(), Some(0));
+        assert_eq!(result.short_output().len(), MAX_OUTPUT_BYTES);
     }
 
     #[test]
