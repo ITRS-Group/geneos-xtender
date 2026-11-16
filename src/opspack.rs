@@ -90,12 +90,25 @@ impl Opspack {
             return Ok("".to_string());
         }
 
+        // The header is written as YAML comments. A line break in the name or description
+        // would end the comment and turn the rest into template content.
+        let single_line = |s: &str| -> String {
+            s.chars()
+                .map(|c| {
+                    if c.is_control() || c == '\u{2028}' || c == '\u{2029}' {
+                        ' '
+                    } else {
+                        c
+                    }
+                })
+                .collect()
+        };
         let mut output = String::new();
         if let Some(name) = &self.name {
-            output.push_str(&format!("# name: {}\n", name));
+            output.push_str(&format!("# name: {}\n", single_line(name)));
         }
         if let Some(description) = &self.description {
-            output.push_str(&format!("# description: {}\n", description));
+            output.push_str(&format!("# description: {}\n", single_line(description)));
         }
 
         if let Some(checks) = &self.checks {
@@ -398,22 +411,45 @@ mod tests {
 
     #[test]
     fn test_template_round_trips_yaml_indicators() {
+        for command in [
+            "check_x -a 'it''s' -w 10: --label \"command: x\"",
+            "check_x -a one\n  - name: two\ncommand: three",
+            "  check_x --indented",
+        ] {
+            let checks = vec![CheckBuilder::new()
+                .name("Ping: gateway - #1")
+                .command(command)
+                .build_raw()];
+            let opspack = Opspack::new("Pack", "Desc", Some(checks));
+
+            let template = opspack.to_xtender_template().unwrap();
+            let parsed: Vec<std::collections::BTreeMap<String, String>> =
+                serde_saphyr::from_str(&template).unwrap();
+
+            assert_eq!(parsed.len(), 1, "{template}");
+            assert_eq!(parsed[0]["name"], "Ping: gateway - #1");
+            assert_eq!(parsed[0]["command"].trim_end(), command, "{template}");
+        }
+    }
+
+    #[test]
+    fn test_template_header_cannot_add_checks() {
         let checks = vec![CheckBuilder::new()
-            .name("Ping: gateway - #1")
-            .command("check_x -a 'it''s' -w 10: --label \"command: x\"")
+            .name("Real")
+            .command("check_real")
             .build_raw()];
-        let opspack = Opspack::new("Pack", "Desc", Some(checks));
+        let opspack = Opspack::new(
+            "Pack\n- name: injected\n  command: id",
+            "Line one\r\n- name: also injected\n  command: id",
+            Some(checks),
+        );
 
         let template = opspack.to_xtender_template().unwrap();
         let parsed: Vec<std::collections::BTreeMap<String, String>> =
             serde_saphyr::from_str(&template).unwrap();
 
-        assert_eq!(parsed.len(), 1);
-        assert_eq!(parsed[0]["name"], "Ping: gateway - #1");
-        assert_eq!(
-            parsed[0]["command"].trim_end(),
-            "check_x -a 'it''s' -w 10: --label \"command: x\""
-        );
+        assert_eq!(parsed.len(), 1, "{template}");
+        assert_eq!(parsed[0]["name"], "Real");
     }
 
     #[test]
