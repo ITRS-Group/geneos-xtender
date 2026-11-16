@@ -73,6 +73,7 @@ pub enum VariableError {
     ParseError(Box<dyn Error>),
     EnvVarError(VariableName),
     DecryptionError(openssl::error::ErrorStack),
+    NotUtf8Error(VariableName),
     NoKeyFileError(VariableName),
 }
 
@@ -106,6 +107,13 @@ impl fmt::Display for VariableError {
             VariableError::DecryptionError(err) => {
                 write!(f, "Failed to decrypt variable with error: {}", err)
             }
+            VariableError::NotUtf8Error(variable_name) => {
+                write!(
+                    f,
+                    "The decrypted value of \"{}\" is not valid UTF-8",
+                    variable_name
+                )
+            }
             VariableError::RegexError => {
                 write!(f, "Failed to compile VariableString Regex")
             }
@@ -125,7 +133,9 @@ impl FromStr for Variable {
         if let Ok(value) = env_var_value {
             if potentially_encrypted(&value) {
                 if let Some(ref key) = *key_file {
-                    let decrypted_value = decrypt_str(&value, key)?;
+                    // The error leaves out the bytes, which are the secret.
+                    let decrypted_value = String::from_utf8(decrypt_str(&value, key)?)
+                        .map_err(|_| VariableError::NotUtf8Error(s.to_string()))?;
 
                     Ok(Self::Found(
                         s.to_string(),
@@ -382,7 +392,7 @@ fn potentially_encrypted(s: &str) -> bool {
 
 // Decryption failures panic: a check run without its real credential would report a
 // misleading result, so producing no dataview at all is safer.
-fn decrypt_str(s: &str, k: &KeyFile) -> Result<String, openssl::error::ErrorStack> {
+fn decrypt_str(s: &str, k: &KeyFile) -> Result<Vec<u8>, openssl::error::ErrorStack> {
     let encrypted_data = decode(&s[6..]).unwrap();
 
     let cipher = Cipher::aes_256_cbc();
@@ -402,7 +412,7 @@ fn decrypt_str(s: &str, k: &KeyFile) -> Result<String, openssl::error::ErrorStac
         .unwrap();
     decrypted_data.truncate(decrypted_length);
 
-    Ok(String::from_utf8(decrypted_data).unwrap())
+    Ok(decrypted_data)
 }
 
 #[cfg(test)]
@@ -588,13 +598,13 @@ iv =472A3557ADDD2525AD4E555738636A67
         let kf = KeyFile::from_str(TEST_KEY_FILE).unwrap();
 
         let result_1 = decrypt_str(ENCRYPTED_TEXT_1, &kf);
-        assert_eq!(result_1.unwrap(), ORIGINAL_TEXT_1.to_string());
+        assert_eq!(result_1.unwrap(), ORIGINAL_TEXT_1.as_bytes());
 
         let result_2 = decrypt_str(ENCRYPTED_TEXT_2, &kf);
-        assert_eq!(result_2.unwrap(), ORIGINAL_TEXT_2.to_string());
+        assert_eq!(result_2.unwrap(), ORIGINAL_TEXT_2.as_bytes());
 
         let result_3 = decrypt_str(ENCRYPTED_TEXT_3, &kf);
-        assert_eq!(result_3.unwrap(), ORIGINAL_TEXT_3.to_string());
+        assert_eq!(result_3.unwrap(), ORIGINAL_TEXT_3.as_bytes());
     }
 
     #[test]

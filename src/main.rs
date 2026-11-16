@@ -271,7 +271,10 @@ async fn main() {
             let template_checks: Vec<TemplateCheck> = serde_saphyr::from_str(template)
                 .unwrap_or_else(|e| panic!("{}\n{}", e, INVALID_TEMPLATE_ERROR_MSG));
             if template_checks.is_empty() {
-                panic!("The template has no checks.\n{}", INVALID_TEMPLATE_ERROR_MSG);
+                panic!(
+                    "The template has no checks.\n{}",
+                    INVALID_TEMPLATE_ERROR_MSG
+                );
             }
 
             for template_check in template_checks {

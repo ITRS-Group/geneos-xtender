@@ -800,6 +800,53 @@ fn test_output_not_containing_secret_var() -> Result<(), Box<dyn std::error::Err
 }
 
 #[test]
+#[serial]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn test_secret_that_is_not_utf8_is_reported_without_its_value() {
+    // Decrypts to the bytes of "pw", 0xE9, "x".
+    unsafe {
+        std::env::set_var(
+            "ENCRYPTED_TEST_VAR",
+            "+encs+2F6597D52495A351660CF7F0DC8A6E9D",
+        );
+    }
+
+    let dir = tempdir().unwrap();
+    let key_file_path = dir.path().join("keyfile");
+    writeln!(
+        File::create(&key_file_path).unwrap(),
+        "{}",
+        VALID_KEY_FILE_CONTENTS
+    )
+    .unwrap();
+    let template_path = dir.path().join("template.yaml");
+    writeln!(
+        File::create(&template_path).unwrap(),
+        "{}",
+        SAMPLE_YAML_ENCRYPTED_VAR
+    )
+    .unwrap();
+
+    Command::cargo_bin("xtender")
+        .unwrap()
+        .arg("-k")
+        .arg(&key_file_path)
+        .arg("--")
+        .arg(&template_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Unable to build check: The decrypted value of \"ENCRYPTED_TEST_VAR\" is not valid UTF-8",
+        ))
+        .stderr(predicate::str::contains("112, 119, 233, 120").not())
+        .stderr(predicate::str::contains("pw").not());
+
+    unsafe {
+        std::env::remove_var("ENCRYPTED_TEST_VAR");
+    }
+}
+
+#[test]
 fn test_output_template_from_opspack_json() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempdir()?;
     let file_1_path = dir.path().join("file_1.json");
