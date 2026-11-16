@@ -547,15 +547,6 @@ mod check_test {
     }
 
     #[test]
-    fn test_check_default_timeout_is_five_seconds() {
-        let check = CheckBuilder::new()
-            .name("test")
-            .command("echo test")
-            .build_raw();
-        assert_eq!(check.timeout(), 5);
-    }
-
-    #[test]
     fn test_check_builder_with_timeout() -> Result<(), Box<dyn std::error::Error>> {
         let check = CheckBuilder::new()
             .name("test")

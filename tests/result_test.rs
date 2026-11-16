@@ -40,15 +40,19 @@ fn test_unparseable_warn_threshold_returns_unknown() {
 
 /// Perfdata with unbalanced quotes should not panic; it should degrade gracefully.
 #[test]
-fn test_unbalanced_quotes_in_perfdata_no_panic() {
+fn test_unbalanced_quotes_in_perfdata_still_report_the_metric() {
     let c = CheckResultBuilder::new()
         .name("Bad Quotes")
         .command("check_foo")
         .parse_output("something|'broken=50%;80;90;0;100")
         .build();
 
-    // Should not panic; we just want to verify it doesn't crash
-    let _csv_results = CheckResults(vec![c]).process().as_csv_string().unwrap();
+    // Falls back to splitting on whitespace, so the metric is still reported.
+    let csv_results = CheckResults(vec![c]).process().as_csv_string().unwrap();
+    assert!(
+        csv_results.contains("\nBad Quotes,0,something,broken,50.0,%,80,90,0,100,"),
+        "{csv_results}"
+    );
 }
 
 fn test_check_results_as_csv(check: CheckResult, expected_csv: Vec<&str>) {
