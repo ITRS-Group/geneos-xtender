@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use shellwords;
 use std::fmt;
 use std::io::{self, Read};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::str::FromStr;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -17,6 +17,35 @@ use wait_timeout::ChildExt;
 /// Plugin output beyond this many bytes is read and discarded, so a plugin that floods
 /// stdout cannot exhaust memory.
 const MAX_OUTPUT_BYTES: usize = 1024 * 1024;
+
+/// Kill the plugin and every process it started, and reap the plugin. The plugin leads its
+/// own process group, so its pid is the group id.
+fn kill_process_group(child: &mut Child) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        let pgid = child.id() as libc::pid_t;
+        // One killpg can miss processes while the group is being torn down (seen on macOS
+        // when several checks time out at once), so repeat it until the group is empty.
+        // The plugin is reaped in between, since a zombie still counts as a member.
+        for attempt in 0..50 {
+            // SAFETY: killpg only sends a signal; it takes no pointers.
+            if unsafe { libc::killpg(pgid, libc::SIGKILL) } != 0 {
+                let e = io::Error::last_os_error();
+                return match e.raw_os_error() {
+                    Some(libc::ESRCH) => Ok(()),
+                    _ if attempt == 0 => child.kill(),
+                    _ => Err(e),
+                };
+            }
+            let _ = child.try_wait();
+            thread::sleep(Duration::from_millis(10));
+        }
+        debug!("Process group {} still has members after the kill", pgid);
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    child.kill()
+}
 
 /// Read `reader` to the end, keeping the first `limit` bytes in `captured`. Returns whether
 /// anything was discarded.
@@ -216,12 +245,15 @@ impl Check {
 
         // stderr is never shown, so it is discarded rather than piped: a pipe nobody reads
         // blocks the plugin once its buffer fills.
-        let mut child = match Command::new(cmd)
+        let mut command = Command::new(cmd);
+        command
             .args(args)
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-        {
+            .stderr(Stdio::null());
+        // A process group of its own lets a timeout stop everything the plugin started.
+        #[cfg(unix)]
+        std::os::unix::process::CommandExt::process_group(&mut command, 0);
+        let mut child = match command.spawn() {
             Ok(child) => child,
             Err(e) => {
                 debug!("Failed to spawn command: {}'", e);
@@ -306,17 +338,12 @@ impl Check {
                 execution_time
             }
             Ok(None) => {
-                // Reap the process only if the kill worked; otherwise wait() could block
-                // for as long as the plugin keeps running.
-                match child.kill() {
-                    Ok(()) => {
-                        let _ = child.wait();
-                    }
-                    Err(e) => {
-                        error!("Failed to kill timed out child process: {}", e);
-                        let _ = child.try_wait();
-                    }
+                // Never wait() here: it would block for as long as a plugin that survived
+                // the kill keeps running.
+                if let Err(e) = kill_process_group(&mut child) {
+                    error!("Failed to kill timed out child process: {}", e);
                 }
+                let _ = child.try_wait();
                 return timeout_result(start_time.elapsed());
             }
             Err(e) => {
@@ -727,6 +754,32 @@ mod check_test {
             "took {:?}",
             started.elapsed()
         );
+    }
+
+    #[test]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn test_timeout_kills_processes_started_by_the_plugin() {
+        // Each subshell would write its marker after the timeout, unless it is killed too.
+        // Several checks time out at once, as in a template run.
+        let dir = tempfile::tempdir().unwrap();
+        let markers: Vec<_> = (0..4).map(|i| dir.path().join(format!("m{i}"))).collect();
+        let handles: Vec<_> = markers
+            .iter()
+            .map(|marker| {
+                let command = format!("sh -c '(sleep 2; touch {}) & sleep 10'", marker.display());
+                std::thread::spawn(move || Check::new("Group", &command, None, 1).run())
+            })
+            .collect();
+        for handle in handles {
+            assert_eq!(handle.join().unwrap().status(), Some(3));
+        }
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        for marker in &markers {
+            assert!(
+                !marker.exists(),
+                "a process started by the plugin survived the timeout"
+            );
+        }
     }
 
     #[test]
